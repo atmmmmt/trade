@@ -106,20 +106,35 @@ export function finalizeAllPaperSamples(priceBySymbol: Record<string, number>, r
   return changed;
 }
 
-export function finalizeGreenPaperSamples(priceBySymbol: Record<string, number>): PaperPosition[] {
+export function finalizeGreenPaperSamples(priceBySymbol: Record<string, number>, minPnl = 0.05): PaperPosition[] {
   const changed: PaperPosition[] = [];
 
   for (const position of account.positions) {
     if (position.status !== 'OPEN') continue;
     const price = priceBySymbol[position.symbol] ?? position.entryPrice;
     const pnl = calculatePnl(position, price);
-    if (pnl <= 0) continue;
-    finalizePaperSample(position, price, 'MANUAL_GREEN');
+    if (pnl < minPnl) continue;
+    finalizePaperSample(position, price, 'AUTO_GREEN_LOCK');
     changed.push(position);
   }
 
   if (changed.length > 0) persistAccount();
   return changed;
+}
+
+export function getOpenPaperPnl(priceBySymbol: Record<string, number>) {
+  let total = 0;
+  const items = [] as Array<{ symbol: string; id: string; pnl: number }>;
+
+  for (const position of account.positions) {
+    if (position.status !== 'OPEN') continue;
+    const price = priceBySymbol[position.symbol] ?? position.entryPrice;
+    const pnl = calculatePnl(position, price);
+    total += pnl;
+    items.push({ symbol: position.symbol, id: position.id, pnl });
+  }
+
+  return { total, items };
 }
 
 export function getPaperStats() {
