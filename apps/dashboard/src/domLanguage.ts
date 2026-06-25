@@ -11,6 +11,8 @@ const translations: Record<string, string> = {
   'Run Signal': 'تحليل الإشارة',
   'Run Backtest': 'تشغيل الاختبار',
   'Paper Tick': 'تجربة ورقية',
+  'Close Winners': 'إغلاق الرابحين',
+  'Close All': 'إغلاق الكل',
   'Reset Paper': 'تصفير التجربة',
   'Start Lab Loop': 'تشغيل المراقبة',
   'Stop Lab Loop': 'إيقاف المراقبة',
@@ -53,6 +55,8 @@ const translations: Record<string, string> = {
   'estimating': 'يتم التقدير',
   'TARGET': 'هدف',
   'STOP': 'وقف',
+  'MANUAL_GREEN': 'إغلاق ربح يدوي',
+  'MANUAL_ALL': 'إغلاق يدوي',
   'open': 'مفتوحة',
   'closed': 'مغلقة'
 };
@@ -75,6 +79,8 @@ function translateDynamic(value: string, lang: Lang) {
     output = output.replace(/Worst:/g, 'الأسوأ:');
     output = output.replace(/TARGET/g, 'هدف');
     output = output.replace(/STOP/g, 'وقف');
+    output = output.replace(/MANUAL_GREEN/g, 'إغلاق ربح يدوي');
+    output = output.replace(/MANUAL_ALL/g, 'إغلاق يدوي');
     output = output.replace(/(\d+)h\s+(\d+)m\s+(\d+)s/g, '$1س $2د $3ث');
     output = output.replace(/(\d+)m\s+(\d+)s/g, '$1د $2ث');
     return output;
@@ -90,6 +96,8 @@ function translateDynamic(value: string, lang: Lang) {
   output = output.replace(/الأسوأ:/g, 'Worst:');
   output = output.replace(/هدف/g, 'TARGET');
   output = output.replace(/وقف/g, 'STOP');
+  output = output.replace(/إغلاق ربح يدوي/g, 'MANUAL_GREEN');
+  output = output.replace(/إغلاق يدوي/g, 'MANUAL_ALL');
   output = output.replace(/(\d+)س\s+(\d+)د\s+(\d+)ث/g, '$1h $2m $3s');
   output = output.replace(/(\d+)د\s+(\d+)ث/g, '$1m $2s');
   return output;
