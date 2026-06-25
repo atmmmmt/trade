@@ -2,15 +2,18 @@
   "name": "smart-crypto-trading-bot",
   "version": "0.1.0",
   "private": true,
-  "description": "Professional staged crypto trading bot: signals, paper trading, Binance Futures Testnet, dashboard.",
+  "description": "Professional staged crypto market-analysis system: signals, paper mode, sandbox mode, dashboard.",
   "scripts": {
     "dev": "npm run dev --workspace apps/api",
-    "build": "npm run build --workspace apps/api",
+    "dev:api": "npm run dev --workspace apps/api",
+    "dev:dashboard": "npm run dev --workspace apps/dashboard",
+    "build": "npm run build --workspace apps/api && npm run build --workspace apps/dashboard",
     "start": "npm run start --workspace apps/api",
-    "typecheck": "npm run typecheck --workspace apps/api"
+    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/dashboard"
   },
   "workspaces": [
-    "apps/api"
+    "apps/api",
+    "apps/dashboard"
   ],
   "engines": {
     "node": ">=20.0.0"
