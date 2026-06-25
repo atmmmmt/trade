@@ -109,16 +109,17 @@ function addStyle() {
   style.textContent = `
     .controls.card { display: none !important; }
     .language-switcher { display: none !important; }
-    .auto-control-panel { display: grid; grid-template-columns: 1fr repeat(4, auto) auto; gap: 14px; align-items: end; margin-bottom: 20px; padding: 18px; border-radius: 24px; border: 1px solid rgba(159,179,202,.18); background: rgba(11,25,44,.82); direction: rtl; }
+    .auto-control-panel { display: grid; grid-template-columns: 1fr repeat(4, auto) auto auto; gap: 14px; align-items: end; margin-bottom: 20px; padding: 18px; border-radius: 24px; border: 1px solid rgba(159,179,202,.18); background: rgba(11,25,44,.82); direction: rtl; }
     .auto-control-panel.is-on { border-color: rgba(110,231,183,.55); box-shadow: 0 0 0 1px rgba(110,231,183,.12),0 22px 60px rgba(16,185,129,.08); }
     .auto-control-panel strong { font-size: 18px; }
     .auto-control-panel span { color: #9fb3ca; font-weight: 800; }
     .auto-control-panel label { display: grid; gap: 6px; color: #9fb3ca; font-weight: 800; font-size: 12px; }
     .auto-control-panel input, .auto-control-panel select { min-height: 44px; border: 1px solid rgba(159,179,202,.22); border-radius: 14px; background: rgba(7,17,31,.9); color: #e5eefb; padding: 0 14px; outline: none; width: 105px; }
-    .auto-main-button { min-height: 54px; min-width: 190px; border-radius: 16px; font-weight: 1000; border: 0; cursor: pointer; }
+    .auto-main-button, .auto-reset-button { min-height: 54px; min-width: 150px; border-radius: 16px; font-weight: 1000; border: 0; cursor: pointer; }
     .auto-main-button.is-on { background: rgba(239,68,68,.24); color: #fecaca; border: 1px solid rgba(248,113,113,.35); }
     .auto-main-button.is-off { background: #10b981; color: #041c14; box-shadow: 0 0 28px rgba(16,185,129,.25); }
-    @media (max-width: 1100px) { .auto-control-panel { grid-template-columns: 1fr 1fr; } }
+    .auto-reset-button { background: rgba(148,163,184,.16); color: #e5eefb; border: 1px solid rgba(148,163,184,.25); }
+    @media (max-width: 1200px) { .auto-control-panel { grid-template-columns: 1fr 1fr; } }
   `;
   document.head.appendChild(style);
 }
@@ -138,6 +139,7 @@ function addPanel() {
     <label>أقصى صفقة $<input data-auto-position type="number" min="1" step="1" value="${savedNumber(keys.position, 5)}" /></label>
     <label>الفريم<select data-auto-interval><option>1m</option><option>3m</option><option>5m</option><option>15m</option></select></label>
     <button class="auto-main-button is-off" data-auto-button>تشغيل النظام الآلي</button>
+    <button class="auto-reset-button" data-auto-reset>تصفير كل شيء</button>
   `;
   summary.insertAdjacentElement('afterend', panel);
 
@@ -145,6 +147,7 @@ function addPanel() {
   if (interval) interval.value = localStorage.getItem(keys.interval) ?? '1m';
 
   panel.querySelector<HTMLButtonElement>('[data-auto-button]')?.addEventListener('click', () => void toggleAuto());
+  panel.querySelector<HTMLButtonElement>('[data-auto-reset]')?.addEventListener('click', () => void resetAll());
 }
 
 function panelNumber(selector: string, fallback: number) {
@@ -155,6 +158,27 @@ function panelNumber(selector: string, fallback: number) {
 
 async function fetchStatus() {
   try { return await json('/api/lab-loop/status'); } catch { return null; }
+}
+
+async function resetAll() {
+  const capital = panelNumber('[data-auto-capital]', 20);
+  saveNumber(keys.capital, capital);
+  saveNumber(keys.budget, panelNumber('[data-auto-budget]', 5));
+  saveNumber(keys.position, panelNumber('[data-auto-position]', 5));
+
+  await fetch('/api/lab-loop/stop', { method: 'POST' }).catch(() => undefined);
+  await fetch('/api/lab/paper/close-all', { method: 'POST' }).catch(() => undefined);
+  await fetch('/api/lab/paper/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ balance: capital })
+  });
+
+  const title = document.querySelector<HTMLElement>('[data-auto-title]');
+  const subtitle = document.querySelector<HTMLElement>('[data-auto-subtitle]');
+  if (title) title.textContent = 'تم تصفير التجربة';
+  if (subtitle) subtitle.textContent = `الرصيد عاد إلى ${capital}$ — اضغط تشغيل للبدء`;
+  await refreshPanel();
 }
 
 async function toggleAuto() {
@@ -211,6 +235,7 @@ async function refreshPanel() {
   const title = document.querySelector<HTMLElement>('[data-auto-title]');
   const subtitle = document.querySelector<HTMLElement>('[data-auto-subtitle]');
   const button = document.querySelector<HTMLButtonElement>('[data-auto-button]');
+  const resetButton = document.querySelector<HTMLButtonElement>('[data-auto-reset]');
   const inputs = document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-auto-capital],[data-auto-budget],[data-auto-position],[data-auto-interval]');
 
   panel?.classList.toggle('is-on', active);
@@ -221,6 +246,7 @@ async function refreshPanel() {
     button.classList.toggle('is-on', active);
     button.classList.toggle('is-off', !active);
   }
+  if (resetButton) resetButton.disabled = active;
   inputs.forEach((input) => { input.disabled = active; });
   applyArabic();
 }
@@ -255,19 +281,19 @@ function start() {
   void refreshPanel();
 
   if (statusTimer) window.clearInterval(statusTimer);
-  statusTimer = window.setInterval(() => void refreshPanel(), 2000);
+  statusTimer = window.setInterval(() => void refreshPanel(), 5000);
 
   if (closeTimer) window.clearInterval(closeTimer);
   closeTimer = window.setInterval(async () => {
     const status = await fetchStatus();
     if (status?.data?.enabled === true) await fetch('/api/lab/paper/close-winners', { method: 'POST' }).catch(() => undefined);
-  }, 2500);
+  }, 5000);
 
   if (budgetTimer) window.clearInterval(budgetTimer);
-  budgetTimer = window.setInterval(() => void budgetGuard(), 2000);
+  budgetTimer = window.setInterval(() => void budgetGuard(), 12000);
 
   if (translateTimer) window.clearInterval(translateTimer);
-  translateTimer = window.setInterval(() => applyArabic(), 1500);
+  translateTimer = window.setInterval(() => applyArabic(), 3000);
 }
 
 window.addEventListener('load', start);
