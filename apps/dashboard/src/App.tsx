@@ -6,6 +6,14 @@ type ApiState<T> = {
   error: string | null;
 };
 
+type ScanResponse = {
+  ok: boolean;
+  data: {
+    best: null | { symbol: string; score: number; action: string; confidence: number };
+    candidates: Array<{ symbol: string; score: number; action: string; confidence: number }>;
+  };
+};
+
 const defaultSymbol = 'BTCUSDT';
 const defaultInterval = '1m';
 
@@ -27,6 +35,7 @@ export function App() {
   const [signal, setSignal] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
   const [backtest, setBacktest] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
   const [paper, setPaper] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
+  const [scanner, setScanner] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
 
   async function runSignal() {
     await run(setSignal, () => api(`/api/bot/signal?symbol=${symbol}&interval=${interval}&limit=150`));
@@ -50,6 +59,19 @@ export function App() {
     }));
   }
 
+  async function findBestMarket() {
+    setScanner({ loading: true, data: null, error: null });
+    try {
+      const data = await api<ScanResponse>(`/api/scanner/best?interval=${interval}&top=12&limit=120&minQuoteVolume=20000000`);
+      if (data.data.best?.symbol) {
+        setSymbol(data.data.best.symbol);
+      }
+      setScanner({ loading: false, data, error: null });
+    } catch (error) {
+      setScanner({ loading: false, data: null, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
   return (
     <main className="page">
       <section className="hero">
@@ -58,7 +80,7 @@ export function App() {
           <h1>Analysis, backtesting, and paper mode dashboard</h1>
           <p className="lead">
             This dashboard is built for testing only. It reads market data, generates strategy signals,
-            and simulates results without touching real funds.
+            scans liquid markets, and simulates results without touching real funds.
           </p>
         </div>
         <div className="status">Safe Mode</div>
@@ -75,13 +97,15 @@ export function App() {
             {['1m', '3m', '5m', '15m', '30m', '1h', '4h'].map((item) => <option key={item}>{item}</option>)}
           </select>
         </label>
+        <button onClick={findBestMarket}>Find Best Market</button>
         <button onClick={runSignal}>Run Signal</button>
         <button onClick={runBacktest}>Run Backtest</button>
         <button onClick={runPaperTick}>Paper Tick</button>
         <button className="ghost" onClick={resetPaper}>Reset Paper</button>
       </section>
 
-      <section className="grid">
+      <section className="grid four">
+        <ResultCard title="Best Market" state={scanner} />
         <ResultCard title="Signal" state={signal} />
         <ResultCard title="Backtest" state={backtest} />
         <ResultCard title="Paper Mode" state={paper} />
