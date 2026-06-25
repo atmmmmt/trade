@@ -7,6 +7,7 @@ import { env } from './config/env.js';
 import { alertRouter } from './routes/alert.routes.js';
 import { botRouter } from './routes/bot.routes.js';
 import { labRouter } from './routes/lab.routes.js';
+import { labLoopRouter } from './routes/labLoop.routes.js';
 import { sandboxRouter } from './routes/sandbox.routes.js';
 import { scannerRouter } from './routes/scanner.routes.js';
 
@@ -23,6 +24,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/api/bot', botRouter);
 app.use('/api/lab', labRouter);
+app.use('/api/lab-loop', labLoopRouter);
 app.use('/api/alerts', alertRouter);
 app.use('/api/sandbox', sandboxRouter);
 app.use('/api/scanner', scannerRouter);
