@@ -16,7 +16,9 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
-app.use(morgan('dev'));
+app.use(morgan('dev', {
+  skip: (req) => req.path === '/api/lab-loop/status' || req.path === '/health'
+}));
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'market-analysis-api', mode: env.TRADING_MODE, time: new Date().toISOString() });
