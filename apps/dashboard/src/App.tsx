@@ -61,14 +61,34 @@ export function App() {
 
   async function findBestMarket() {
     setScanner({ loading: true, data: null, error: null });
+    setSignal({ loading: true, data: null, error: null });
+    setBacktest({ loading: true, data: null, error: null });
+    setPaper({ loading: true, data: null, error: null });
+
     try {
-      const data = await api<ScanResponse>(`/api/scanner/best?interval=${interval}&top=12&limit=120&minQuoteVolume=20000000`);
-      if (data.data.best?.symbol) {
-        setSymbol(data.data.best.symbol);
-      }
-      setScanner({ loading: false, data, error: null });
+      const scan = await api<ScanResponse>(`/api/scanner/best?interval=${interval}&top=12&limit=120&minQuoteVolume=20000000`);
+      const bestSymbol = scan.data.best?.symbol ?? symbol;
+      setSymbol(bestSymbol);
+      setScanner({ loading: false, data: scan, error: null });
+
+      const [signalData, backtestData, paperData] = await Promise.all([
+        api(`/api/bot/signal?symbol=${bestSymbol}&interval=${interval}&limit=150`),
+        api(`/api/lab/backtest?symbol=${bestSymbol}&interval=${interval}&limit=500&startingBalance=1000&riskPercent=1`),
+        api('/api/lab/paper/tick', {
+          method: 'POST',
+          body: JSON.stringify({ symbol: bestSymbol, interval, limit: 150, size: 0.001 })
+        })
+      ]);
+
+      setSignal({ loading: false, data: signalData, error: null });
+      setBacktest({ loading: false, data: backtestData, error: null });
+      setPaper({ loading: false, data: paperData, error: null });
     } catch (error) {
-      setScanner({ loading: false, data: null, error: error instanceof Error ? error.message : 'Unknown error' });
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setScanner((current) => ({ ...current, loading: false, error: message }));
+      setSignal((current) => ({ ...current, loading: false, error: current.data ? null : message }));
+      setBacktest((current) => ({ ...current, loading: false, error: current.data ? null : message }));
+      setPaper((current) => ({ ...current, loading: false, error: current.data ? null : message }));
     }
   }
 
@@ -97,7 +117,7 @@ export function App() {
             {['1m', '3m', '5m', '15m', '30m', '1h', '4h'].map((item) => <option key={item}>{item}</option>)}
           </select>
         </label>
-        <button onClick={findBestMarket}>Find Best Market</button>
+        <button onClick={findBestMarket}>Find Best + Auto Test</button>
         <button onClick={runSignal}>Run Signal</button>
         <button onClick={runBacktest}>Run Backtest</button>
         <button onClick={runPaperTick}>Paper Tick</button>
