@@ -1,12 +1,56 @@
 let statusTimer: number | null = null;
 let closeTimer: number | null = null;
 let budgetTimer: number | null = null;
+let translateTimer: number | null = null;
 
 const keys = {
   capital: 'auto-capital-usd',
   budget: 'auto-budget-usd',
   position: 'auto-position-usd',
   interval: 'auto-interval'
+};
+
+const ar: Record<string, string> = {
+  'Smart Market Lab': 'مختبر السوق الذكي',
+  'Simulation dashboard': 'لوحة المحاكاة والتحليل',
+  'Market scanner, strategy checks, backtests, paper-mode performance boxes, and account analytics.': 'ماسح السوق، الإشارات، الاختبارات، بوكسات الربح والخسارة، وتحليلات الحساب التجريبي.',
+  'Safe Mode': 'الوضع الآمن',
+  'Equity': 'قيمة الحساب',
+  'Balance + open P/L': 'الرصيد + الربح المفتوح',
+  'Total P/L': 'إجمالي الربح/الخسارة',
+  'Realized P/L': 'الربح المحقق',
+  'Closed results': 'نتائج الصفقات المغلقة',
+  'Open P/L': 'الربح المفتوح',
+  'Running positions': 'الصفقات الحالية',
+  'Win Rate': 'نسبة الفوز',
+  'Positions': 'الصفقات',
+  'Performance Chart': 'شارت الأداء',
+  'Waiting': 'بانتظار البيانات',
+  'Open Positions': 'الصفقات المفتوحة',
+  'Closed Positions': 'الصفقات المغلقة',
+  'No open paper positions.': 'لا توجد صفقات مفتوحة الآن.',
+  'No closed paper positions yet.': 'لا توجد صفقات مغلقة بعد.',
+  'Lab Loop Raw': 'بيانات المراقبة الخام',
+  'Best Market Raw': 'بيانات أفضل عملة الخام',
+  'Signal Raw': 'بيانات الإشارة الخام',
+  'Backtest Raw': 'بيانات الاختبار الخام',
+  'Paper Raw': 'بيانات التجربة الخام',
+  'No data yet.': 'لا توجد بيانات بعد.',
+  'Loading...': 'جاري التحميل...',
+  'Start': 'البداية',
+  'Balance': 'الرصيد',
+  'Best': 'الأفضل',
+  'Worst': 'الأسوأ',
+  'Entry': 'الدخول',
+  'Now/Exit': 'الحالي/الخروج',
+  'P/L': 'ربح/خسارة',
+  'Open For': 'مفتوحة منذ',
+  'ETA Close': 'تقدير الإغلاق',
+  'Nearest': 'أقرب خروج',
+  'TARGET': 'هدف',
+  'STOP': 'وقف',
+  'open': 'مفتوحة',
+  'closed': 'مغلقة'
 };
 
 function savedNumber(key: string, fallback: number) {
@@ -23,6 +67,41 @@ async function json(url: string, init?: RequestInit) {
   return response.json();
 }
 
+function translateText(value: string) {
+  let output = value;
+  const trimmed = output.trim();
+  if (ar[trimmed]) output = output.replace(trimmed, ar[trimmed]);
+  output = output.replace(/\bopen\s+(\d+)\b/g, 'مفتوحة $1');
+  output = output.replace(/\bclosed\s+(\d+)\b/g, 'مغلقة $1');
+  output = output.replace(/Start:/g, 'البداية:');
+  output = output.replace(/Balance:/g, 'الرصيد:');
+  output = output.replace(/Best:/g, 'الأفضل:');
+  output = output.replace(/Worst:/g, 'الأسوأ:');
+  output = output.replace(/TARGET/g, 'هدف');
+  output = output.replace(/STOP/g, 'وقف');
+  output = output.replace(/(\d+)h\s+(\d+)m\s+(\d+)s/g, '$1س $2د $3ث');
+  output = output.replace(/(\d+)m\s+(\d+)s/g, '$1د $2ث');
+  return output;
+}
+
+function applyArabic() {
+  document.documentElement.lang = 'ar';
+  document.documentElement.dir = 'rtl';
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      if (['SCRIPT', 'STYLE', 'PRE', 'CODE', 'TEXTAREA', 'INPUT', 'SELECT'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  const nodes: Text[] = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+  for (const node of nodes) node.nodeValue = translateText(node.nodeValue ?? '');
+}
+
 function addStyle() {
   if (document.getElementById('auto-only-style')) return;
   const style = document.createElement('style');
@@ -30,7 +109,7 @@ function addStyle() {
   style.textContent = `
     .controls.card { display: none !important; }
     .language-switcher { display: none !important; }
-    .auto-control-panel { display: grid; grid-template-columns: 1fr repeat(4, auto) auto; gap: 14px; align-items: end; margin-bottom: 20px; padding: 18px; border-radius: 24px; border: 1px solid rgba(159,179,202,.18); background: rgba(11,25,44,.82); }
+    .auto-control-panel { display: grid; grid-template-columns: 1fr repeat(4, auto) auto; gap: 14px; align-items: end; margin-bottom: 20px; padding: 18px; border-radius: 24px; border: 1px solid rgba(159,179,202,.18); background: rgba(11,25,44,.82); direction: rtl; }
     .auto-control-panel.is-on { border-color: rgba(110,231,183,.55); box-shadow: 0 0 0 1px rgba(110,231,183,.12),0 22px 60px rgba(16,185,129,.08); }
     .auto-control-panel strong { font-size: 18px; }
     .auto-control-panel span { color: #9fb3ca; font-weight: 800; }
@@ -143,6 +222,7 @@ async function refreshPanel() {
     button.classList.toggle('is-off', !active);
   }
   inputs.forEach((input) => { input.disabled = active; });
+  applyArabic();
 }
 
 async function budgetGuard() {
@@ -171,6 +251,7 @@ async function budgetGuard() {
 function start() {
   addStyle();
   addPanel();
+  applyArabic();
   void refreshPanel();
 
   if (statusTimer) window.clearInterval(statusTimer);
@@ -184,6 +265,9 @@ function start() {
 
   if (budgetTimer) window.clearInterval(budgetTimer);
   budgetTimer = window.setInterval(() => void budgetGuard(), 2000);
+
+  if (translateTimer) window.clearInterval(translateTimer);
+  translateTimer = window.setInterval(() => applyArabic(), 1500);
 }
 
 window.addEventListener('load', start);
