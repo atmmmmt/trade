@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 type ApiState<T> = { loading: boolean; data: T | null; error: string | null };
 type ScanResponse = { ok: boolean; data: { best: null | { symbol: string; score: number; action: string; confidence: number }; candidates: Array<{ symbol: string; score: number; action: string; confidence: number }> } };
-type LabLoopResponse = { ok: boolean; data: { enabled?: boolean; running?: boolean; runs?: number; lastResult?: { symbol?: string; signal?: unknown; backtest?: unknown; recorded?: unknown; updated?: unknown[] } | null; account?: unknown; stats?: unknown } };
+type LabLoopResponse = { ok: boolean; data: { enabled?: boolean; running?: boolean; runs?: number; lastRunAt?: string | null; nextRunAt?: string | null; lastResult?: { symbol?: string; signal?: unknown; backtest?: unknown; recorded?: unknown; updated?: unknown[] } | null; account?: unknown; stats?: unknown } };
 type PaperPosition = { id: string; symbol: string; side: 'BUY' | 'SELL'; entryPrice: number; currentPrice?: number; stopLoss: number; takeProfit: number; size: number; status: 'OPEN' | 'CLOSED'; pnl?: number; unrealizedPnl?: number; unrealizedPnlPercent?: number; closeReason?: string; openedAt?: string; closedAt?: string; timeOpenSeconds?: number; estimatedCloseSeconds?: number | null; nearestExit?: { type: 'TARGET' | 'STOP'; price: number; distance: number } };
 type PaperSummary = { startingBalance: number; balance: number; equity: number; realizedPnl: number; unrealizedPnl: number; totalPnl: number; totalPnlPercent: number; wins: number; losses: number; winRate: number; openCount: number; closedCount: number; bestClosed: number; worstClosed: number; openPositions: PaperPosition[]; closedPositions: PaperPosition[]; equityCurve: Array<{ label: string; equity: number }>; updatedAt: string };
 
@@ -25,6 +25,10 @@ export function App() {
   const [scanner, setScanner] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
   const [loop, setLoop] = useState<ApiState<LabLoopResponse>>({ loading: false, data: null, error: null });
   const [summary, setSummary] = useState<ApiState<PaperSummary>>({ loading: false, data: null, error: null });
+
+  const loopActive = loop.data?.data.enabled === true;
+  const loopBusy = loop.data?.data.running === true;
+  const loopRuns = loop.data?.data.runs ?? 0;
 
   useEffect(() => {
     void refreshSummary(false);
@@ -86,8 +90,9 @@ export function App() {
   return <main className="page">
     <section className="hero"><div><p className="eyebrow">Smart Market Lab</p><h1>Simulation dashboard</h1><p className="lead">Market scanner, strategy checks, backtests, paper-mode performance boxes, and account analytics.</p></div><div className="status">Safe Mode</div></section>
     <SummaryPanel state={summary} />
+    <section className={`loop-state-card ${loopActive ? 'is-active' : 'is-inactive'}`}><div><span className="state-dot" /><strong>{loopActive ? 'Monitoring ON' : 'Monitoring OFF'}</strong><small>{loopBusy ? 'running now' : 'standing by'}</small></div><div><span>Runs</span><strong>{loopRuns}</strong></div><div><span>Next</span><strong>{formatTime(loop.data?.data.nextRunAt)}</strong></div></section>
     <section className="controls card"><label>Symbol<input value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} /></label><label>Interval<select value={interval} onChange={(event) => setIntervalValue(event.target.value)}>{['1m', '3m', '5m', '15m', '30m', '1h', '4h'].map((item) => <option key={item}>{item}</option>)}</select></label><button onClick={findBestMarket}>Find Best + Auto Test</button><button onClick={runSignal}>Run Signal</button><button onClick={runBacktest}>Run Backtest</button><button onClick={runPaperTick}>Paper Tick</button><button onClick={closeWinners}>Close Winners</button><button className="ghost" onClick={resetPaper}>Reset Paper</button></section>
-    <section className="controls card loop-controls"><button onClick={startLoop}>Start Lab Loop</button><button onClick={stopLoop} className="ghost">Stop Lab Loop</button><button onClick={runLoopOnce}>Run Loop Once</button><button onClick={() => void refreshLoop(true)} className="ghost">Refresh Loop</button><button onClick={() => void refreshSummary(true)} className="ghost">Refresh P/L</button><button onClick={closeAll} className="danger">Close All</button></section>
+    <section className="controls card loop-controls"><button onClick={startLoop} className={loopActive ? 'active-on' : ''}>Start Lab Loop</button><button onClick={stopLoop} className={loopActive ? 'danger' : 'active-off'}>Stop Lab Loop</button><button onClick={runLoopOnce}>Run Loop Once</button><button onClick={() => void refreshLoop(true)} className="ghost">Refresh Loop</button><button onClick={() => void refreshSummary(true)} className="ghost">Refresh P/L</button><button onClick={closeAll} className="danger">Close All</button></section>
     <section className="dashboard-grid"><PerformanceCard summary={summary.data} /><PositionsCard title="Open Positions" positions={summary.data?.openPositions ?? []} empty="No open paper positions." /><PositionsCard title="Closed Positions" positions={summary.data?.closedPositions ?? []} empty="No closed paper positions yet." /></section>
     <section className="grid five diagnostics"><ResultCard title="Lab Loop Raw" state={loop} /><ResultCard title="Best Market Raw" state={scanner} /><ResultCard title="Signal Raw" state={signal} /><ResultCard title="Backtest Raw" state={backtest} /><ResultCard title="Paper Raw" state={paper} /></section>
   </main>;
@@ -105,4 +110,5 @@ function fmtMoney(value?: number) { if (typeof value !== 'number' || Number.isNa
 function fmtPct(value?: number) { if (typeof value !== 'number' || Number.isNaN(value)) return '0.00%'; return `${value.toFixed(2)}%`; }
 function num(value?: number) { if (typeof value !== 'number' || Number.isNaN(value)) return '-'; return value < 1 ? value.toFixed(6) : value.toFixed(3); }
 function fmtDuration(seconds?: number | null) { if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'estimating'; const safe = Math.max(0, Math.floor(seconds)); const hours = Math.floor(safe / 3600); const minutes = Math.floor((safe % 3600) / 60); const secs = safe % 60; if (hours > 0) return `${hours}h ${minutes}m ${secs}s`; return `${minutes}m ${secs}s`; }
+function formatTime(value?: string | null) { if (!value) return '-'; return new Date(value).toLocaleTimeString(); }
 function tone(value?: number): 'positive' | 'negative' | 'neutral' { if (!value) return 'neutral'; return value > 0 ? 'positive' : 'negative'; }
