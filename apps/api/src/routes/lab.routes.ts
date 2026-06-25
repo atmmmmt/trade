@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { runBacktest } from '../backtest/backtestEngine.js';
 import { getFuturesCandles, type KlineInterval } from '../exchange/binanceFuturesTestnet.js';
 import { evaluatePaperPositions, getPaperAccount, getPaperStats, openPaperPosition, resetPaperAccount } from '../paper/paperEngine.js';
+import { buildPaperSummary } from '../paper/paperSummary.js';
 import { emaRsiAtrStrategy } from '../strategies/emaRsiAtrStrategy.js';
 
 export const labRouter = Router();
@@ -15,6 +16,15 @@ const LabSchema = z.object({
 
 labRouter.get('/paper/account', (_req, res) => {
   res.json({ ok: true, data: getPaperAccount(), stats: getPaperStats() });
+});
+
+labRouter.get('/paper/summary', async (_req, res, next) => {
+  try {
+    const data = await buildPaperSummary();
+    res.json({ ok: true, data });
+  } catch (error) {
+    next(error);
+  }
 });
 
 labRouter.post('/paper/reset', (req, res) => {
@@ -30,7 +40,8 @@ labRouter.post('/paper/tick', async (req, res, next) => {
     const currentPrice = candles[candles.length - 1]?.close ?? signal.price;
     const closed = evaluatePaperPositions(query.symbol.toUpperCase(), currentPrice);
     const opened = openPaperPosition(signal, Number(req.body?.size ?? 0.001));
-    res.json({ ok: true, signal, opened, closed, account: getPaperAccount(), stats: getPaperStats() });
+    const summary = await buildPaperSummary();
+    res.json({ ok: true, signal, opened, closed, account: getPaperAccount(), stats: getPaperStats(), summary });
   } catch (error) {
     next(error);
   }
