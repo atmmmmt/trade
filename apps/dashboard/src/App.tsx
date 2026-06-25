@@ -48,6 +48,9 @@ type PaperPosition = {
   closeReason?: string;
   openedAt?: string;
   closedAt?: string;
+  timeOpenSeconds?: number;
+  estimatedCloseSeconds?: number | null;
+  nearestExit?: { type: 'TARGET' | 'STOP'; price: number; distance: number };
 };
 
 type PaperSummary = {
@@ -94,7 +97,7 @@ export function App() {
   useEffect(() => {
     void refreshSummary(false);
     void refreshLoop(false);
-    const summaryTimer = window.setInterval(() => void refreshSummary(false), 5_000);
+    const summaryTimer = window.setInterval(() => void refreshSummary(false), 2_000);
     const loopTimer = window.setInterval(() => void refreshLoop(false), 10_000);
     return () => {
       window.clearInterval(summaryTimer);
@@ -184,7 +187,7 @@ export function App() {
 
   async function startLoop() {
     await run(setLoop, async () => {
-      const response = await api<LabLoopResponse>('/api/lab-loop/start', { method: 'POST', body: JSON.stringify({ interval, intervalSeconds: 60, top: 12, minQuoteVolume: 20000000, minConfidence: 80, minBacktestProfitPercent: 1, minBacktestTrades: 3, maxAbsMove24h: 22, size: 0.001 }) });
+      const response = await api<LabLoopResponse>('/api/lab-loop/start', { method: 'POST', body: JSON.stringify({ interval, intervalSeconds: 60, top: 12, minQuoteVolume: 20000000, minConfidence: 85, minBacktestProfitPercent: 2, minBacktestTrades: 8, maxAbsMove24h: 18, size: 0 }) });
       syncLoopCards(response);
       return response;
     });
@@ -337,7 +340,9 @@ function PositionRow(props: { position: PaperPosition }) {
       <div><span>Entry</span><strong>{num(p.entryPrice)}</strong></div>
       <div><span>Now/Exit</span><strong>{num(p.currentPrice ?? p.entryPrice)}</strong></div>
       <div><span>P/L</span><strong className={pnl && pnl < 0 ? 'loss-text' : 'win-text'}>{fmtMoney(pnl)}</strong></div>
-      <div><span>Reason</span><strong>{p.closeReason ?? '-'}</strong></div>
+      <div><span>Open For</span><strong>{fmtDuration(p.timeOpenSeconds)}</strong></div>
+      <div><span>ETA Close</span><strong>{fmtDuration(p.estimatedCloseSeconds)}</strong></div>
+      <div><span>Nearest</span><strong>{p.nearestExit ? `${p.nearestExit.type} ${num(p.nearestExit.price)}` : '-'}</strong></div>
     </div>
   );
 }
@@ -370,6 +375,16 @@ function fmtPct(value?: number) {
 function num(value?: number) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-';
   return value < 1 ? value.toFixed(6) : value.toFixed(3);
+}
+
+function fmtDuration(seconds?: number | null) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'estimating';
+  const safe = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${secs}s`;
+  return `${minutes}m ${secs}s`;
 }
 
 function tone(value?: number): 'positive' | 'negative' | 'neutral' {
