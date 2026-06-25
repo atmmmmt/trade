@@ -79,7 +79,17 @@ const state: LabLoopState = {
 let timer: NodeJS.Timeout | null = null;
 
 export function getLabLoopState() {
-  return { ...state, account: getPaperAccount(), stats: getPaperStats() };
+  const stats = getPaperStats();
+  return {
+    ...state,
+    stats,
+    account: {
+      startingBalance: stats.startingBalance,
+      balance: stats.balance,
+      openCount: stats.openCount,
+      closedCount: stats.closedCount
+    }
+  };
 }
 
 export function startLabLoop(input: Partial<LabLoopConfig> = {}) {
