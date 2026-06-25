@@ -13,7 +13,10 @@ export type LabLoopConfig = {
   minConfidence: number;
   minBacktestProfitPercent: number;
   minBacktestTrades: number;
+  minWinRate: number;
+  maxDrawdownPercent: number;
   maxAbsMove24h: number;
+  maxOpenPositions: number;
   size: number;
 };
 
@@ -46,11 +49,14 @@ const baseConfig: LabLoopConfig = {
   intervalSeconds: 60,
   top: 12,
   minQuoteVolume: 20_000_000,
-  minConfidence: 80,
-  minBacktestProfitPercent: 1,
-  minBacktestTrades: 3,
-  maxAbsMove24h: 22,
-  size: 0.001
+  minConfidence: 85,
+  minBacktestProfitPercent: 2,
+  minBacktestTrades: 8,
+  minWinRate: 52,
+  maxDrawdownPercent: 8,
+  maxAbsMove24h: 18,
+  maxOpenPositions: 2,
+  size: 0
 };
 
 const state: LabLoopState = {
@@ -115,6 +121,21 @@ export async function runLabLoopOnce() {
 async function evaluate(config: LabLoopConfig): Promise<LabLoopResult> {
   const scan = await scanBestMarket({ interval: config.interval, limit: 120, top: config.top, minQuoteVolume: config.minQuoteVolume });
   const notes: string[] = [];
+  const account = getPaperAccount();
+  const openPositions = account.positions.filter((position) => position.status === 'OPEN');
+
+  if (openPositions.length >= config.maxOpenPositions) {
+    for (const position of openPositions) {
+      const candles = await getFuturesCandles({ symbol: position.symbol, interval: config.interval, limit: 60 });
+      const currentPrice = candles[candles.length - 1]?.close ?? position.entryPrice;
+      const updated = evaluatePaperPositions(position.symbol, currentPrice);
+      if (updated.length > 0) {
+        return { time: new Date().toISOString(), symbol: position.symbol, result: 'UPDATED', notes: ['maximum open samples reached; updated existing sample only'], updated };
+      }
+    }
+
+    return { time: new Date().toISOString(), result: 'SKIPPED', notes: [`maximum open samples reached: ${openPositions.length}/${config.maxOpenPositions}`] };
+  }
 
   for (const item of scan.candidates) {
     const candles = await getFuturesCandles({ symbol: item.symbol, interval: config.interval, limit: 500 });
@@ -125,9 +146,11 @@ async function evaluate(config: LabLoopConfig): Promise<LabLoopResult> {
 
     const blockers = [
       signal.action !== 'WAIT' ? null : 'signal WAIT',
-      signal.confidence >= config.minConfidence ? null : `confidence ${signal.confidence}`,
-      test.totalPnlPercent >= config.minBacktestProfitPercent ? null : `test ${test.totalPnlPercent.toFixed(2)}%`,
-      test.trades.length >= config.minBacktestTrades ? null : `samples ${test.trades.length}`,
+      signal.confidence >= config.minConfidence ? null : `confidence ${signal.confidence} < ${config.minConfidence}`,
+      test.totalPnlPercent >= config.minBacktestProfitPercent ? null : `test ${test.totalPnlPercent.toFixed(2)}% < ${config.minBacktestProfitPercent}%`,
+      test.trades.length >= config.minBacktestTrades ? null : `samples ${test.trades.length} < ${config.minBacktestTrades}`,
+      test.winRate >= config.minWinRate ? null : `win rate ${test.winRate.toFixed(2)}% < ${config.minWinRate}%`,
+      test.maxDrawdownPercent <= config.maxDrawdownPercent ? null : `drawdown ${test.maxDrawdownPercent.toFixed(2)}% > ${config.maxDrawdownPercent}%`,
       Math.abs(item.priceChangePercent24h) <= config.maxAbsMove24h ? null : `24h move ${item.priceChangePercent24h.toFixed(2)}%`,
       getPaperAccount().positions.some((p) => p.status === 'OPEN' && p.symbol === item.symbol) ? 'already active' : null
     ].filter(Boolean) as string[];
@@ -141,10 +164,10 @@ async function evaluate(config: LabLoopConfig): Promise<LabLoopResult> {
     }
 
     const recorded = openPaperPosition(signal, config.size);
-    return { time: new Date().toISOString(), symbol: item.symbol, result: recorded ? 'RECORDED' : 'SKIPPED', notes: recorded ? ['recorded in paper mode'] : ['nothing recorded'], signal, backtest: shortTest(test), recorded, updated };
+    return { time: new Date().toISOString(), symbol: item.symbol, result: recorded ? 'RECORDED' : 'SKIPPED', notes: recorded ? ['strict paper review passed'] : ['nothing recorded'], signal, backtest: shortTest(test), recorded, updated };
   }
 
-  return { time: new Date().toISOString(), result: 'SKIPPED', notes: notes.length > 0 ? notes : ['no candidate passed'] };
+  return { time: new Date().toISOString(), result: 'SKIPPED', notes: notes.length > 0 ? notes : ['no candidate passed strict review'] };
 }
 
 function shortTest(test: ReturnType<typeof runBacktest>) {
@@ -158,5 +181,18 @@ function planNext(delayMs: number) {
 }
 
 function normalize(config: LabLoopConfig): LabLoopConfig {
-  return { ...config, intervalSeconds: Math.max(30, Math.min(config.intervalSeconds, 3600)), top: Math.max(3, Math.min(config.top, 30)), minQuoteVolume: Math.max(1_000_000, config.minQuoteVolume), minConfidence: Math.max(50, Math.min(config.minConfidence, 95)), minBacktestProfitPercent: Math.max(0, config.minBacktestProfitPercent), minBacktestTrades: Math.max(1, Math.min(config.minBacktestTrades, 50)), maxAbsMove24h: Math.max(3, Math.min(config.maxAbsMove24h, 80)), size: Math.max(0.0001, Math.min(config.size, 1)) };
+  return {
+    ...config,
+    intervalSeconds: Math.max(30, Math.min(config.intervalSeconds, 3600)),
+    top: Math.max(3, Math.min(config.top, 30)),
+    minQuoteVolume: Math.max(1_000_000, config.minQuoteVolume),
+    minConfidence: Math.max(50, Math.min(config.minConfidence, 95)),
+    minBacktestProfitPercent: Math.max(0, config.minBacktestProfitPercent),
+    minBacktestTrades: Math.max(1, Math.min(config.minBacktestTrades, 50)),
+    minWinRate: Math.max(0, Math.min(config.minWinRate, 100)),
+    maxDrawdownPercent: Math.max(1, Math.min(config.maxDrawdownPercent, 60)),
+    maxAbsMove24h: Math.max(3, Math.min(config.maxAbsMove24h, 80)),
+    maxOpenPositions: Math.max(1, Math.min(config.maxOpenPositions, 5)),
+    size: Math.max(0, Math.min(config.size, 1))
+  };
 }
