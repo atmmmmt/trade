@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { StrategySignal, TradingSide } from '../trading/types.js';
 
 export type PaperPosition = {
@@ -46,7 +47,7 @@ export function openPaperPosition(signal: StrategySignal, size = 0.001): PaperPo
   if (alreadyOpen) return null;
 
   const position: PaperPosition = {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     symbol: signal.symbol,
     side: signal.action,
     entryPrice: signal.price,
