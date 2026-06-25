@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
+import { alertRouter } from './routes/alert.routes.js';
 import { botRouter } from './routes/bot.routes.js';
 import { labRouter } from './routes/lab.routes.js';
 
@@ -25,6 +26,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/api/bot', botRouter);
 app.use('/api/lab', labRouter);
+app.use('/api/alerts', alertRouter);
 
 app.use((req, res) => {
   res.status(404).json({
