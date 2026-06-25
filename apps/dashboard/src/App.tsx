@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type ApiState<T> = {
   loading: boolean;
@@ -11,6 +11,23 @@ type ScanResponse = {
   data: {
     best: null | { symbol: string; score: number; action: string; confidence: number };
     candidates: Array<{ symbol: string; score: number; action: string; confidence: number }>;
+  };
+};
+
+type LabLoopResponse = {
+  ok: boolean;
+  data: {
+    enabled?: boolean;
+    running?: boolean;
+    lastResult?: {
+      symbol?: string;
+      signal?: unknown;
+      backtest?: unknown;
+      recorded?: unknown;
+      updated?: unknown[];
+    } | null;
+    account?: unknown;
+    stats?: unknown;
   };
 };
 
@@ -31,7 +48,29 @@ export function App() {
   const [backtest, setBacktest] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
   const [paper, setPaper] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
   const [scanner, setScanner] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
-  const [loop, setLoop] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
+  const [loop, setLoop] = useState<ApiState<LabLoopResponse>>({ loading: false, data: null, error: null });
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshLoop(false);
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  function syncLoopCards(response: LabLoopResponse) {
+    const result = response.data.lastResult;
+    if (!result) return;
+    if (result.symbol) setSymbol(result.symbol);
+    if (result.signal) setSignal({ loading: false, data: { ok: true, data: result.signal }, error: null });
+    if (result.backtest) setBacktest({ loading: false, data: { ok: true, data: result.backtest }, error: null });
+    if (result.recorded || result.updated || response.data.account || response.data.stats) {
+      setPaper({
+        loading: false,
+        data: { ok: true, recorded: result.recorded, updated: result.updated, account: response.data.account, stats: response.data.stats },
+        error: null
+      });
+    }
+  }
 
   async function runSignal() {
     await run(setSignal, () => api(`/api/bot/signal?symbol=${symbol}&interval=${interval}&limit=150`));
@@ -80,7 +119,11 @@ export function App() {
   }
 
   async function startLoop() {
-    await run(setLoop, () => api('/api/lab-loop/start', { method: 'POST', body: JSON.stringify({ interval, intervalSeconds: 60, top: 12, minQuoteVolume: 20000000, minConfidence: 80, minBacktestProfitPercent: 1, minBacktestTrades: 3, maxAbsMove24h: 22, size: 0.001 }) }));
+    await run(setLoop, async () => {
+      const response = await api<LabLoopResponse>('/api/lab-loop/start', { method: 'POST', body: JSON.stringify({ interval, intervalSeconds: 60, top: 12, minQuoteVolume: 20000000, minConfidence: 80, minBacktestProfitPercent: 1, minBacktestTrades: 3, maxAbsMove24h: 22, size: 0.001 }) });
+      syncLoopCards(response);
+      return response;
+    });
   }
 
   async function stopLoop() {
@@ -88,11 +131,30 @@ export function App() {
   }
 
   async function runLoopOnce() {
-    await run(setLoop, () => api('/api/lab-loop/run-once', { method: 'POST' }));
+    await run(setLoop, async () => {
+      const response = await api<LabLoopResponse>('/api/lab-loop/run-once', { method: 'POST' });
+      syncLoopCards(response);
+      return response;
+    });
   }
 
-  async function refreshLoop() {
-    await run(setLoop, () => api('/api/lab-loop/status'));
+  async function refreshLoop(showLoading = true) {
+    if (showLoading) {
+      await run(setLoop, async () => {
+        const response = await api<LabLoopResponse>('/api/lab-loop/status');
+        syncLoopCards(response);
+        return response;
+      });
+      return;
+    }
+
+    try {
+      const response = await api<LabLoopResponse>('/api/lab-loop/status');
+      setLoop({ loading: false, data: response, error: null });
+      syncLoopCards(response);
+    } catch {
+      // Silent background refresh failure.
+    }
   }
 
   return (
@@ -120,7 +182,7 @@ export function App() {
         <button onClick={startLoop}>Start Lab Loop</button>
         <button onClick={stopLoop} className="ghost">Stop Lab Loop</button>
         <button onClick={runLoopOnce}>Run Loop Once</button>
-        <button onClick={refreshLoop} className="ghost">Refresh Loop</button>
+        <button onClick={() => void refreshLoop(true)} className="ghost">Refresh Loop</button>
       </section>
 
       <section className="grid five">
