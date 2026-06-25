@@ -47,6 +47,12 @@ const translations: Record<string, string> = {
   'Now/Exit': 'الحالي/الخروج',
   'P/L': 'ربح/خسارة',
   'Reason': 'السبب',
+  'Open For': 'مفتوحة منذ',
+  'ETA Close': 'تقدير الإغلاق',
+  'Nearest': 'أقرب خروج',
+  'estimating': 'يتم التقدير',
+  'TARGET': 'هدف',
+  'STOP': 'وقف',
   'open': 'مفتوحة',
   'closed': 'مغلقة'
 };
@@ -67,6 +73,10 @@ function translateDynamic(value: string, lang: Lang) {
     output = output.replace(/Balance:/g, 'الرصيد:');
     output = output.replace(/Best:/g, 'الأفضل:');
     output = output.replace(/Worst:/g, 'الأسوأ:');
+    output = output.replace(/TARGET/g, 'هدف');
+    output = output.replace(/STOP/g, 'وقف');
+    output = output.replace(/(\d+)h\s+(\d+)m\s+(\d+)s/g, '$1س $2د $3ث');
+    output = output.replace(/(\d+)m\s+(\d+)s/g, '$1د $2ث');
     return output;
   }
 
@@ -78,6 +88,10 @@ function translateDynamic(value: string, lang: Lang) {
   output = output.replace(/الرصيد:/g, 'Balance:');
   output = output.replace(/الأفضل:/g, 'Best:');
   output = output.replace(/الأسوأ:/g, 'Worst:');
+  output = output.replace(/هدف/g, 'TARGET');
+  output = output.replace(/وقف/g, 'STOP');
+  output = output.replace(/(\d+)س\s+(\d+)د\s+(\d+)ث/g, '$1h $2m $3s');
+  output = output.replace(/(\d+)د\s+(\d+)ث/g, '$1m $2s');
   return output;
 }
 
