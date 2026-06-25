@@ -17,6 +17,26 @@ export type KlineInterval =
   | '4h'
   | '1d';
 
+export type FuturesTicker24h = {
+  symbol: string;
+  priceChangePercent: string;
+  lastPrice: string;
+  highPrice: string;
+  lowPrice: string;
+  volume: string;
+  quoteVolume: string;
+  count: number;
+};
+
+export type FuturesSymbolInfo = {
+  symbol: string;
+  pair: string;
+  contractType: string;
+  status: string;
+  quoteAsset: string;
+  marginAsset: string;
+};
+
 export async function getFuturesCandles(params: {
   symbol: string;
   interval: KlineInterval;
@@ -45,4 +65,14 @@ export async function getFuturesCandles(params: {
       closeTime: Number(item[6])
     } satisfies Candle;
   });
+}
+
+export async function getFutures24hTickers(): Promise<FuturesTicker24h[]> {
+  const response = await client.get<FuturesTicker24h[]>('/fapi/v1/ticker/24hr');
+  return response.data;
+}
+
+export async function getFuturesExchangeSymbols(): Promise<FuturesSymbolInfo[]> {
+  const response = await client.get<{ symbols: FuturesSymbolInfo[] }>('/fapi/v1/exchangeInfo');
+  return response.data.symbols;
 }
