@@ -48,14 +48,14 @@ const baseConfig: LabLoopConfig = {
   interval: '1m',
   intervalSeconds: 60,
   top: 12,
-  minQuoteVolume: 20_000_000,
-  minConfidence: 85,
-  minBacktestProfitPercent: 2,
-  minBacktestTrades: 8,
-  minWinRate: 52,
-  maxDrawdownPercent: 8,
-  maxAbsMove24h: 18,
-  maxOpenPositions: 2,
+  minQuoteVolume: 8_000_000,
+  minConfidence: 60,
+  minBacktestProfitPercent: 0,
+  minBacktestTrades: 1,
+  minWinRate: 0,
+  maxDrawdownPercent: 30,
+  maxAbsMove24h: 70,
+  maxOpenPositions: 4,
   size: 0
 };
 
@@ -164,10 +164,10 @@ async function evaluate(config: LabLoopConfig): Promise<LabLoopResult> {
     }
 
     const recorded = openPaperPosition(signal, config.size);
-    return { time: new Date().toISOString(), symbol: item.symbol, result: recorded ? 'RECORDED' : 'SKIPPED', notes: recorded ? ['strict paper review passed'] : ['nothing recorded'], signal, backtest: shortTest(test), recorded, updated };
+    return { time: new Date().toISOString(), symbol: item.symbol, result: recorded ? 'RECORDED' : 'SKIPPED', notes: recorded ? ['balanced paper review passed'] : ['nothing recorded'], signal, backtest: shortTest(test), recorded, updated };
   }
 
-  return { time: new Date().toISOString(), result: 'SKIPPED', notes: notes.length > 0 ? notes : ['no candidate passed strict review'] };
+  return { time: new Date().toISOString(), result: 'SKIPPED', notes: notes.length > 0 ? notes : ['no candidate passed balanced review'] };
 }
 
 function shortTest(test: ReturnType<typeof runBacktest>) {
@@ -187,7 +187,7 @@ function normalize(config: LabLoopConfig): LabLoopConfig {
     top: Math.max(3, Math.min(config.top, 30)),
     minQuoteVolume: Math.max(1_000_000, config.minQuoteVolume),
     minConfidence: Math.max(50, Math.min(config.minConfidence, 95)),
-    minBacktestProfitPercent: Math.max(0, config.minBacktestProfitPercent),
+    minBacktestProfitPercent: Math.max(-10, config.minBacktestProfitPercent),
     minBacktestTrades: Math.max(1, Math.min(config.minBacktestTrades, 50)),
     minWinRate: Math.max(0, Math.min(config.minWinRate, 100)),
     maxDrawdownPercent: Math.max(1, Math.min(config.maxDrawdownPercent, 60)),
