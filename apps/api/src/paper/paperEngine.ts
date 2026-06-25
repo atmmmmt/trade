@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import type { StrategySignal, TradingSide } from '../trading/types.js';
 
 export type PaperPosition = {
@@ -23,11 +25,10 @@ export type PaperAccount = {
   positions: PaperPosition[];
 };
 
-const account: PaperAccount = {
-  balance: 1000,
-  startingBalance: 1000,
-  positions: []
-};
+const dataDir = path.resolve(process.cwd(), 'data');
+const accountPath = path.join(dataDir, 'paper-account.json');
+
+const account: PaperAccount = loadAccount();
 
 export function getPaperAccount(): PaperAccount {
   return account;
@@ -37,6 +38,7 @@ export function resetPaperAccount(balance = 1000): PaperAccount {
   account.balance = balance;
   account.startingBalance = balance;
   account.positions = [];
+  persistAccount();
   return account;
 }
 
@@ -46,6 +48,8 @@ export function openPaperPosition(signal: StrategySignal, size = 0.001): PaperPo
   const alreadyOpen = account.positions.some((position) => position.status === 'OPEN' && position.symbol === signal.symbol);
   if (alreadyOpen) return null;
 
+  const effectiveSize = size > 0 ? size : calculateRiskBasedSize(signal);
+
   const position: PaperPosition = {
     id: randomUUID(),
     symbol: signal.symbol,
@@ -53,12 +57,13 @@ export function openPaperPosition(signal: StrategySignal, size = 0.001): PaperPo
     entryPrice: signal.price,
     stopLoss: signal.suggestedRisk.stopLoss,
     takeProfit: signal.suggestedRisk.takeProfit,
-    size,
+    size: effectiveSize,
     openedAt: new Date().toISOString(),
     status: 'OPEN'
   };
 
   account.positions.push(position);
+  persistAccount();
   return position;
 }
 
@@ -78,12 +83,13 @@ export function evaluatePaperPositions(symbol: string, currentPrice: number): Pa
 
     if (!hitStop && !hitTarget) continue;
 
+    const exitPrice = hitTarget ? position.takeProfit : position.stopLoss;
     const pnl = position.side === 'BUY'
-      ? (currentPrice - position.entryPrice) * position.size
-      : (position.entryPrice - currentPrice) * position.size;
+      ? (exitPrice - position.entryPrice) * position.size
+      : (position.entryPrice - exitPrice) * position.size;
 
     position.status = 'CLOSED';
-    position.exitPrice = currentPrice;
+    position.exitPrice = exitPrice;
     position.closedAt = new Date().toISOString();
     position.pnl = pnl;
     position.closeReason = hitTarget ? 'TARGET' : 'STOP';
@@ -91,6 +97,7 @@ export function evaluatePaperPositions(symbol: string, currentPrice: number): Pa
     changed.push(position);
   }
 
+  if (changed.length > 0) persistAccount();
   return changed;
 }
 
@@ -112,4 +119,32 @@ export function getPaperStats() {
     losses,
     winRate
   };
+}
+
+function calculateRiskBasedSize(signal: StrategySignal): number {
+  if (!signal.suggestedRisk) return 0.001;
+  const riskAmount = account.balance * 0.01;
+  const stopDistance = Math.abs(signal.price - signal.suggestedRisk.stopLoss);
+  if (!Number.isFinite(stopDistance) || stopDistance <= 0) return 0.001;
+  return Number((riskAmount / stopDistance).toFixed(6));
+}
+
+function loadAccount(): PaperAccount {
+  try {
+    if (!existsSync(accountPath)) return createDefaultAccount();
+    const parsed = JSON.parse(readFileSync(accountPath, 'utf8')) as PaperAccount;
+    if (!parsed || !Array.isArray(parsed.positions)) return createDefaultAccount();
+    return parsed;
+  } catch {
+    return createDefaultAccount();
+  }
+}
+
+function persistAccount() {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(accountPath, JSON.stringify(account, null, 2), 'utf8');
+}
+
+function createDefaultAccount(): PaperAccount {
+  return { balance: 1000, startingBalance: 1000, positions: [] };
 }
