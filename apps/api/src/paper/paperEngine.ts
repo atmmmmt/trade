@@ -84,16 +84,37 @@ export function evaluatePaperPositions(symbol: string, currentPrice: number): Pa
     if (!hitStop && !hitTarget) continue;
 
     const exitPrice = hitTarget ? position.takeProfit : position.stopLoss;
-    const pnl = position.side === 'BUY'
-      ? (exitPrice - position.entryPrice) * position.size
-      : (position.entryPrice - exitPrice) * position.size;
+    finalizePaperSample(position, exitPrice, hitTarget ? 'TARGET' : 'STOP');
+    changed.push(position);
+  }
 
-    position.status = 'CLOSED';
-    position.exitPrice = exitPrice;
-    position.closedAt = new Date().toISOString();
-    position.pnl = pnl;
-    position.closeReason = hitTarget ? 'TARGET' : 'STOP';
-    account.balance += pnl;
+  if (changed.length > 0) persistAccount();
+  return changed;
+}
+
+export function finalizeAllPaperSamples(priceBySymbol: Record<string, number>, reason = 'MANUAL_ALL'): PaperPosition[] {
+  const changed: PaperPosition[] = [];
+
+  for (const position of account.positions) {
+    if (position.status !== 'OPEN') continue;
+    const price = priceBySymbol[position.symbol] ?? position.entryPrice;
+    finalizePaperSample(position, price, reason);
+    changed.push(position);
+  }
+
+  if (changed.length > 0) persistAccount();
+  return changed;
+}
+
+export function finalizeGreenPaperSamples(priceBySymbol: Record<string, number>): PaperPosition[] {
+  const changed: PaperPosition[] = [];
+
+  for (const position of account.positions) {
+    if (position.status !== 'OPEN') continue;
+    const price = priceBySymbol[position.symbol] ?? position.entryPrice;
+    const pnl = calculatePnl(position, price);
+    if (pnl <= 0) continue;
+    finalizePaperSample(position, price, 'MANUAL_GREEN');
     changed.push(position);
   }
 
@@ -119,6 +140,22 @@ export function getPaperStats() {
     losses,
     winRate
   };
+}
+
+function finalizePaperSample(position: PaperPosition, exitPrice: number, reason: string) {
+  const pnl = calculatePnl(position, exitPrice);
+  position.status = 'CLOSED';
+  position.exitPrice = exitPrice;
+  position.closedAt = new Date().toISOString();
+  position.pnl = pnl;
+  position.closeReason = reason;
+  account.balance += pnl;
+}
+
+function calculatePnl(position: PaperPosition, exitPrice: number): number {
+  return position.side === 'BUY'
+    ? (exitPrice - position.entryPrice) * position.size
+    : (position.entryPrice - exitPrice) * position.size;
 }
 
 function calculateRiskBasedSize(signal: StrategySignal): number {
