@@ -55,15 +55,40 @@ const reverseTranslations = Object.fromEntries(Object.entries(translations).map(
 let currentLang: Lang = (localStorage.getItem('dashboard-lang') as Lang) || 'ar';
 let observer: MutationObserver | null = null;
 
+function translateDynamic(value: string, lang: Lang) {
+  let output = value;
+
+  if (lang === 'ar') {
+    output = output.replace(/\bopen\s+(\d+)\b/g, 'مفتوحة $1');
+    output = output.replace(/\bclosed\s+(\d+)\b/g, 'مغلقة $1');
+    output = output.replace(/\b(\d+)\s+open\b/g, '$1 مفتوحة');
+    output = output.replace(/\b(\d+)\s+closed\b/g, '$1 مغلقة');
+    output = output.replace(/Start:/g, 'البداية:');
+    output = output.replace(/Balance:/g, 'الرصيد:');
+    output = output.replace(/Best:/g, 'الأفضل:');
+    output = output.replace(/Worst:/g, 'الأسوأ:');
+    return output;
+  }
+
+  output = output.replace(/مفتوحة\s+(\d+)/g, 'open $1');
+  output = output.replace(/مغلقة\s+(\d+)/g, 'closed $1');
+  output = output.replace(/(\d+)\s+مفتوحة/g, '$1 open');
+  output = output.replace(/(\d+)\s+مغلقة/g, '$1 closed');
+  output = output.replace(/البداية:/g, 'Start:');
+  output = output.replace(/الرصيد:/g, 'Balance:');
+  output = output.replace(/الأفضل:/g, 'Best:');
+  output = output.replace(/الأسوأ:/g, 'Worst:');
+  return output;
+}
+
 function translateText(value: string, lang: Lang) {
   const trimmed = value.trim();
   if (!trimmed) return value;
 
-  if (lang === 'ar') {
-    return translations[trimmed] ?? value;
-  }
+  const exact = lang === 'ar' ? translations[trimmed] : reverseTranslations[trimmed];
+  if (exact) return value.replace(trimmed, exact);
 
-  return reverseTranslations[trimmed] ?? value;
+  return translateDynamic(value, lang);
 }
 
 function applyLanguage(lang: Lang) {
