@@ -9,11 +9,14 @@ const StartSchema = z.object({
   intervalSeconds: z.coerce.number().int().min(30).max(3600).default(60),
   top: z.coerce.number().int().min(3).max(30).default(12),
   minQuoteVolume: z.coerce.number().positive().default(20_000_000),
-  minConfidence: z.coerce.number().min(50).max(95).default(80),
-  minBacktestProfitPercent: z.coerce.number().min(0).default(1),
-  minBacktestTrades: z.coerce.number().int().min(1).max(50).default(3),
-  maxAbsMove24h: z.coerce.number().min(3).max(80).default(22),
-  size: z.coerce.number().positive().default(0.001)
+  minConfidence: z.coerce.number().min(50).max(95).default(85),
+  minBacktestProfitPercent: z.coerce.number().min(0).default(2),
+  minBacktestTrades: z.coerce.number().int().min(1).max(50).default(8),
+  minWinRate: z.coerce.number().min(0).max(100).default(52),
+  maxDrawdownPercent: z.coerce.number().min(1).max(60).default(8),
+  maxAbsMove24h: z.coerce.number().min(3).max(80).default(18),
+  maxOpenPositions: z.coerce.number().int().min(1).max(5).default(2),
+  size: z.coerce.number().min(0).default(0)
 });
 
 labLoopRouter.get('/status', (_req, res) => {
