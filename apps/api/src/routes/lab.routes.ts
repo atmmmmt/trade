@@ -2,7 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { runBacktest } from '../backtest/backtestEngine.js';
 import { getFuturesCandles, type KlineInterval } from '../exchange/binanceFuturesTestnet.js';
-import { evaluatePaperPositions, getPaperAccount, getPaperStats, openPaperPosition, resetPaperAccount } from '../paper/paperEngine.js';
+import {
+  evaluatePaperPositions,
+  finalizeAllPaperSamples,
+  finalizeGreenPaperSamples,
+  getPaperAccount,
+  getPaperStats,
+  openPaperPosition,
+  resetPaperAccount
+} from '../paper/paperEngine.js';
 import { buildPaperSummary } from '../paper/paperSummary.js';
 import { emaRsiAtrStrategy } from '../strategies/emaRsiAtrStrategy.js';
 
@@ -30,6 +38,28 @@ labRouter.get('/paper/summary', async (_req, res, next) => {
 labRouter.post('/paper/reset', (req, res) => {
   const balance = Number(req.body?.balance ?? 1000);
   res.json({ ok: true, data: resetPaperAccount(balance) });
+});
+
+labRouter.post('/paper/close-winners', async (_req, res, next) => {
+  try {
+    const priceBySymbol = await currentPricesForOpenSymbols();
+    const closed = finalizeGreenPaperSamples(priceBySymbol);
+    const summary = await buildPaperSummary();
+    res.json({ ok: true, closed, summary });
+  } catch (error) {
+    next(error);
+  }
+});
+
+labRouter.post('/paper/close-all', async (_req, res, next) => {
+  try {
+    const priceBySymbol = await currentPricesForOpenSymbols();
+    const closed = finalizeAllPaperSamples(priceBySymbol, 'MANUAL_ALL');
+    const summary = await buildPaperSummary();
+    res.json({ ok: true, closed, summary });
+  } catch (error) {
+    next(error);
+  }
 });
 
 labRouter.post('/paper/tick', async (req, res, next) => {
@@ -66,3 +96,19 @@ labRouter.get('/backtest', async (req, res, next) => {
     next(error);
   }
 });
+
+async function currentPricesForOpenSymbols() {
+  const symbols = [...new Set(getPaperAccount().positions.filter((position) => position.status === 'OPEN').map((position) => position.symbol))];
+  const priceBySymbol: Record<string, number> = {};
+
+  for (const symbol of symbols) {
+    try {
+      const candles = await getFuturesCandles({ symbol, interval: '1m', limit: 60 });
+      priceBySymbol[symbol] = candles[candles.length - 1]?.close ?? 0;
+    } catch {
+      priceBySymbol[symbol] = 0;
+    }
+  }
+
+  return priceBySymbol;
+}
