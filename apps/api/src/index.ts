@@ -7,6 +7,7 @@ import { env } from './config/env.js';
 import { alertRouter } from './routes/alert.routes.js';
 import { botRouter } from './routes/bot.routes.js';
 import { labRouter } from './routes/lab.routes.js';
+import { sandboxRouter } from './routes/sandbox.routes.js';
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.get('/health', (_req, res) => {
 app.use('/api/bot', botRouter);
 app.use('/api/lab', labRouter);
 app.use('/api/alerts', alertRouter);
+app.use('/api/sandbox', sandboxRouter);
 
 app.use((req, res) => {
   res.status(404).json({
