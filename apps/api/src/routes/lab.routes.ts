@@ -22,6 +22,8 @@ const LabSchema = z.object({
   limit: z.coerce.number().int().min(60).max(500).default(150)
 });
 
+const greenCloseMinPnl = 0.05;
+
 labRouter.get('/paper/account', (_req, res) => {
   res.json({ ok: true, data: getPaperAccount(), stats: getPaperStats() });
 });
@@ -43,9 +45,9 @@ labRouter.post('/paper/reset', (req, res) => {
 labRouter.post('/paper/close-winners', async (_req, res, next) => {
   try {
     const priceBySymbol = await currentPricesForOpenSymbols();
-    const closed = finalizeGreenPaperSamples(priceBySymbol);
+    const closed = finalizeGreenPaperSamples(priceBySymbol, greenCloseMinPnl);
     const summary = await buildPaperSummary();
-    res.json({ ok: true, closed, summary });
+    res.json({ ok: true, closed, minPnl: greenCloseMinPnl, summary });
   } catch (error) {
     next(error);
   }
