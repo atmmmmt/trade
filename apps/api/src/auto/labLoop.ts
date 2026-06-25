@@ -1,6 +1,6 @@
 import { runBacktest } from '../backtest/backtestEngine.js';
 import { getFuturesCandles, type KlineInterval } from '../exchange/binanceFuturesTestnet.js';
-import { evaluatePaperPositions, getPaperAccount, getPaperStats, openPaperPosition } from '../paper/paperEngine.js';
+import { evaluatePaperPositions, finalizeAllPaperSamples, finalizeGreenPaperSamples, getOpenPaperPnl, getPaperAccount, getPaperStats, openPaperPosition } from '../paper/paperEngine.js';
 import { scanBestMarket } from '../scanner/marketScanner.js';
 import { emaRsiAtrStrategy } from '../strategies/emaRsiAtrStrategy.js';
 
@@ -58,6 +58,11 @@ const baseConfig: LabLoopConfig = {
   maxOpenPositions: 4,
   size: 0
 };
+
+const greenCloseMinPnl = 0.05;
+const protectStartPnl = 5;
+const protectGivebackRatio = 0.25;
+const hardLockPnl = 10;
 
 const state: LabLoopState = {
   enabled: false,
@@ -119,6 +124,9 @@ export async function runLabLoopOnce() {
 }
 
 async function evaluate(config: LabLoopConfig): Promise<LabLoopResult> {
+  const protection = await runProtectionReview(config.interval);
+  if (protection) return protection;
+
   const scan = await scanBestMarket({ interval: config.interval, limit: 120, top: config.top, minQuoteVolume: config.minQuoteVolume });
   const notes: string[] = [];
   const account = getPaperAccount();
@@ -168,6 +176,47 @@ async function evaluate(config: LabLoopConfig): Promise<LabLoopResult> {
   }
 
   return { time: new Date().toISOString(), result: 'SKIPPED', notes: notes.length > 0 ? notes : ['no candidate passed balanced review'] };
+}
+
+async function runProtectionReview(interval: KlineInterval): Promise<LabLoopResult | null> {
+  const priceBySymbol = await currentOpenPrices(interval);
+  const greenClosed = finalizeGreenPaperSamples(priceBySymbol, greenCloseMinPnl);
+  if (greenClosed.length > 0) {
+    return { time: new Date().toISOString(), result: 'UPDATED', notes: [`green lock closed ${greenClosed.length} sample(s) at min ${greenCloseMinPnl}`], updated: greenClosed };
+  }
+
+  const stats = getPaperStats();
+  const openPnl = getOpenPaperPnl(priceBySymbol).total;
+  const account = getPaperAccount();
+  const openCount = account.positions.filter((position) => position.status === 'OPEN').length;
+
+  if (stats.totalPnl >= hardLockPnl && openCount > 0) {
+    const closed = finalizeAllPaperSamples(priceBySymbol, 'HARD_PROFIT_LOCK');
+    return { time: new Date().toISOString(), result: 'UPDATED', notes: [`hard lock protected paper gain above ${hardLockPnl}`], updated: closed };
+  }
+
+  if (stats.totalPnl >= protectStartPnl && openPnl < 0 && Math.abs(openPnl) >= stats.totalPnl * protectGivebackRatio) {
+    const closed = finalizeAllPaperSamples(priceBySymbol, 'GIVEBACK_PROTECTION');
+    return { time: new Date().toISOString(), result: 'UPDATED', notes: [`giveback protection closed open samples: open=${openPnl.toFixed(4)}, total=${stats.totalPnl.toFixed(4)}`], updated: closed };
+  }
+
+  return null;
+}
+
+async function currentOpenPrices(interval: KlineInterval) {
+  const symbols = [...new Set(getPaperAccount().positions.filter((position) => position.status === 'OPEN').map((position) => position.symbol))];
+  const priceBySymbol: Record<string, number> = {};
+
+  for (const symbol of symbols) {
+    try {
+      const candles = await getFuturesCandles({ symbol, interval, limit: 60 });
+      priceBySymbol[symbol] = candles[candles.length - 1]?.close ?? 0;
+    } catch {
+      priceBySymbol[symbol] = 0;
+    }
+  }
+
+  return priceBySymbol;
 }
 
 function shortTest(test: ReturnType<typeof runBacktest>) {
