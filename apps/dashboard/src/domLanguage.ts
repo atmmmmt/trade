@@ -64,6 +64,8 @@ const translations: Record<string, string> = {
 const reverseTranslations = Object.fromEntries(Object.entries(translations).map(([en, ar]) => [ar, en]));
 let currentLang: Lang = (localStorage.getItem('dashboard-lang') as Lang) || 'ar';
 let observer: MutationObserver | null = null;
+let autoCloseTimer: number | null = null;
+let autoStatusTimer: number | null = null;
 
 function translateDynamic(value: string, lang: Lang) {
   let output = value;
@@ -153,13 +155,130 @@ function addSwitcher() {
   document.body.appendChild(switcher);
 }
 
+function addAutoOnlyStyle() {
+  if (document.getElementById('auto-only-style')) return;
+  const style = document.createElement('style');
+  style.id = 'auto-only-style';
+  style.textContent = `
+    .controls.card { display: none !important; }
+    .auto-control-panel { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center; margin-bottom: 20px; padding: 18px; border-radius: 24px; border: 1px solid rgba(159,179,202,.18); background: rgba(11,25,44,.82); }
+    .auto-control-panel.is-on { border-color: rgba(110,231,183,.55); box-shadow: 0 0 0 1px rgba(110,231,183,.12),0 22px 60px rgba(16,185,129,.08); }
+    .auto-control-panel strong { font-size: 18px; }
+    .auto-control-panel span { color: #9fb3ca; font-weight: 800; }
+    .auto-main-button { min-height: 54px; min-width: 190px; border-radius: 16px; font-weight: 1000; }
+    .auto-main-button.is-on { background: rgba(239,68,68,.24); color: #fecaca; border: 1px solid rgba(248,113,113,.35); }
+    .auto-main-button.is-off { background: #10b981; color: #041c14; box-shadow: 0 0 28px rgba(16,185,129,.25); }
+    @media (max-width: 980px) { .auto-control-panel { grid-template-columns: 1fr; } }
+  `;
+  document.head.appendChild(style);
+}
+
+function addAutoPanel() {
+  if (document.getElementById('auto-control-panel')) return;
+  const summary = document.querySelector('.summary-grid');
+  if (!summary || !summary.parentElement) return;
+
+  const panel = document.createElement('section');
+  panel.id = 'auto-control-panel';
+  panel.className = 'auto-control-panel';
+  panel.innerHTML = `
+    <div><strong data-auto-title>النظام الآلي متوقف</strong><br><span data-auto-subtitle>زر واحد فقط للتشغيل والإيقاف</span></div>
+    <label style="display:grid;gap:6px;color:#9fb3ca;font-weight:800">الفريم<select data-auto-interval><option>1m</option><option>3m</option><option>5m</option><option>15m</option></select></label>
+    <button class="auto-main-button is-off" data-auto-button>تشغيل النظام الآلي</button>
+  `;
+  summary.insertAdjacentElement('afterend', panel);
+
+  const button = panel.querySelector<HTMLButtonElement>('[data-auto-button]');
+  button?.addEventListener('click', () => void toggleAutoPanel());
+}
+
+async function toggleAutoPanel() {
+  const status = await fetchAutoStatus();
+  const active = status?.data?.enabled === true;
+  const interval = (document.querySelector<HTMLSelectElement>('[data-auto-interval]')?.value ?? '1m') as string;
+
+  if (active) {
+    await fetch('/api/lab-loop/stop', { method: 'POST' });
+  } else {
+    await fetch('/api/lab-loop/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        interval,
+        intervalSeconds: 30,
+        top: 12,
+        minQuoteVolume: 8000000,
+        minConfidence: 60,
+        minBacktestProfitPercent: 0,
+        minBacktestTrades: 1,
+        minWinRate: 0,
+        maxDrawdownPercent: 30,
+        maxAbsMove24h: 70,
+        maxOpenPositions: 4,
+        size: 0
+      })
+    });
+  }
+
+  await refreshAutoPanel();
+}
+
+async function fetchAutoStatus() {
+  try {
+    const response = await fetch('/api/lab-loop/status');
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function refreshAutoPanel() {
+  const status = await fetchAutoStatus();
+  const active = status?.data?.enabled === true;
+  const runs = status?.data?.runs ?? 0;
+  const panel = document.getElementById('auto-control-panel');
+  const title = document.querySelector<HTMLElement>('[data-auto-title]');
+  const subtitle = document.querySelector<HTMLElement>('[data-auto-subtitle]');
+  const button = document.querySelector<HTMLButtonElement>('[data-auto-button]');
+  const interval = document.querySelector<HTMLSelectElement>('[data-auto-interval]');
+
+  panel?.classList.toggle('is-on', active);
+  if (title) title.textContent = active ? 'النظام الآلي شغال' : 'النظام الآلي متوقف';
+  if (subtitle) subtitle.textContent = active ? `الدورات: ${runs} — يتم فحص السوق تلقائيًا` : 'زر واحد فقط للتشغيل والإيقاف';
+  if (button) {
+    button.textContent = active ? 'إيقاف النظام' : 'تشغيل النظام الآلي';
+    button.classList.toggle('is-on', active);
+    button.classList.toggle('is-off', !active);
+  }
+  if (interval) interval.disabled = active;
+}
+
+function startAutoControlLayer() {
+  addAutoOnlyStyle();
+  addAutoPanel();
+  void refreshAutoPanel();
+
+  if (autoStatusTimer) window.clearInterval(autoStatusTimer);
+  autoStatusTimer = window.setInterval(() => void refreshAutoPanel(), 2000);
+
+  if (autoCloseTimer) window.clearInterval(autoCloseTimer);
+  autoCloseTimer = window.setInterval(async () => {
+    const status = await fetchAutoStatus();
+    if (status?.data?.enabled === true) {
+      await fetch('/api/lab/paper/close-winners', { method: 'POST' }).catch(() => undefined);
+    }
+  }, 2500);
+}
+
 function startLanguageLayer() {
   addSwitcher();
+  startAutoControlLayer();
   applyLanguage(currentLang);
 
   observer = new MutationObserver(() => {
     observer?.disconnect();
     addSwitcher();
+    startAutoControlLayer();
     applyLanguage(currentLang);
     observer?.observe(document.body, { childList: true, subtree: true, characterData: true });
   });
