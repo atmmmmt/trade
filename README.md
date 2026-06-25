@@ -1,74 +1,82 @@
 # Smart Crypto Trading Bot
 
-> Experimental trading bot system for learning, backtesting, paper trading, and Binance Futures Testnet execution.
+> Experimental market-analysis system for learning, strategy testing, paper mode, sandbox checks, alerts, and dashboard monitoring.
 
 ## Important Safety Notice
 
-This project is for **testing and education first**. It does not guarantee profit. Markets are risky and any real-money deployment must use small capital, strict risk limits, and API keys with withdrawals disabled.
+This project is for **testing and education first**. It does not guarantee profit. Markets are risky. Real-money usage is intentionally not automated in this version.
 
 Never commit API keys, secrets, or real account credentials.
 
-## Project Goal
+## Current Status
 
-Build a professional trading system in phases:
+Implemented:
 
-1. **Phase 1 — Signal Engine**
-   - Read market candles.
-   - Analyze trend and momentum.
-   - Return BUY / SELL / WAIT decisions with reasons.
-   - No real orders.
-
-2. **Phase 2 — Paper Trading**
-   - Simulate entries and exits.
-   - Track virtual PnL.
-   - Log every decision.
-
-3. **Phase 3 — Binance Futures Testnet**
-   - Connect to Binance testnet only.
-   - Place test orders.
-   - Validate execution, stop loss, take profit, and limits.
-
-4. **Phase 4 — Dashboard**
-   - Control bot status.
-   - View trades, PnL, risk, logs, and strategy settings.
-
-5. **Phase 5 — Real Trading Preparation**
-   - Only after long testing.
-   - Small capital.
-   - Withdrawal disabled.
-   - IP whitelist enabled.
+- Phase 1: Signal Engine.
+- Phase 2: Paper Mode.
+- Phase 3: Sandbox account status checker only.
+- Phase 4: React Dashboard.
+- Phase 5: Safety documentation and guarded environment setup.
 
 ## Stack
 
 - Node.js + TypeScript
 - Express API
-- MongoDB later for trade history and settings
-- Binance Futures Testnet REST API
-- Telegram alerts later
-- React dashboard later
+- React + Vite dashboard
+- Binance Futures Testnet market data
+- Paper mode simulator
+- Backtest engine
+- Telegram alert module
 
 ## Local Setup
 
 ```bash
 npm install
 cp .env.example .env
-npm run dev
+npm run dev:api
 ```
 
-API health check:
+Open another terminal for dashboard:
 
 ```bash
-GET http://localhost:5000/health
+npm run dev:dashboard
 ```
 
-Run one strategy check:
+API:
 
-```bash
-GET http://localhost:5000/api/bot/signal?symbol=BTCUSDT&interval=1m
+```txt
+http://localhost:5000
 ```
 
-## Binance Testnet
+Dashboard:
 
-Use only Binance Futures Testnet keys during early phases.
+```txt
+http://localhost:5173
+```
 
-Do not add real Binance keys to this repo.
+## Main Endpoints
+
+```txt
+GET  /health
+GET  /api/bot/signal?symbol=BTCUSDT&interval=1m
+GET  /api/bot/risk?balance=1000&entry=60000&stopLoss=59400&riskPercent=1
+GET  /api/bot/guard?dailyLossPercent=1&consecutiveLosses=0&openTrades=0
+GET  /api/lab/backtest?symbol=BTCUSDT&interval=1m&limit=500
+GET  /api/lab/paper/account
+POST /api/lab/paper/tick
+POST /api/lab/paper/reset
+POST /api/alerts/telegram/test
+GET  /api/sandbox/status
+```
+
+## Docs
+
+- `docs/RUN_GUIDE.md`
+- `docs/PHASES.md`
+- `docs/SECURITY.md`
+
+## Sandbox Keys
+
+Use only testnet/sandbox keys during early phases.
+
+Do not add real exchange keys to this repo.
