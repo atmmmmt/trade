@@ -17,7 +17,12 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev', {
-  skip: (req) => req.path === '/api/lab-loop/status' || req.path === '/health'
+  skip: (req) => [
+    '/health',
+    '/api/lab-loop/status',
+    '/api/lab/paper/summary',
+    '/api/lab/paper/close-winners'
+  ].includes(req.path)
 }));
 
 app.get('/health', (_req, res) => {
