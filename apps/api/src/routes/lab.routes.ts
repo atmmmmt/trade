@@ -46,8 +46,7 @@ labRouter.post('/paper/close-winners', async (_req, res, next) => {
   try {
     const priceBySymbol = await currentPricesForOpenSymbols();
     const closed = finalizeGreenPaperSamples(priceBySymbol, greenCloseMinPnl);
-    const summary = await buildPaperSummary();
-    res.json({ ok: true, closed, minPnl: greenCloseMinPnl, summary });
+    res.json({ ok: true, closedCount: closed.length, minPnl: greenCloseMinPnl, stats: getPaperStats() });
   } catch (error) {
     next(error);
   }
