@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react';
 
-type ApiState<T> = { loading: boolean; data: T | null; error: string | null };
-type ScanResponse = { ok: boolean; data: { best: null | { symbol: string; score: number; action: string; confidence: number }; candidates: Array<{ symbol: string; score: number; action: string; confidence: number }> } };
-type LabLoopResponse = { ok: boolean; data: { enabled?: boolean; running?: boolean; runs?: number; lastRunAt?: string | null; nextRunAt?: string | null; lastResult?: { symbol?: string; signal?: unknown; backtest?: unknown; recorded?: unknown; updated?: unknown[] } | null; account?: unknown; stats?: unknown } };
-type PaperPosition = { id: string; symbol: string; side: 'BUY' | 'SELL'; entryPrice: number; currentPrice?: number; stopLoss: number; takeProfit: number; size: number; status: 'OPEN' | 'CLOSED'; pnl?: number; unrealizedPnl?: number; unrealizedPnlPercent?: number; closeReason?: string; openedAt?: string; closedAt?: string; timeOpenSeconds?: number; estimatedCloseSeconds?: number | null; nearestExit?: { type: 'TARGET' | 'STOP'; price: number; distance: number } };
-type PaperSummary = { startingBalance: number; balance: number; equity: number; realizedPnl: number; unrealizedPnl: number; totalPnl: number; totalPnlPercent: number; wins: number; losses: number; winRate: number; openCount: number; closedCount: number; bestClosed: number; worstClosed: number; openPositions: PaperPosition[]; closedPositions: PaperPosition[]; equityCurve: Array<{ label: string; equity: number }>; updatedAt: string };
-
-const defaultSymbol = 'BTCUSDT';
-const defaultInterval = '1m';
+type LoopResponse = { ok: boolean; data: { enabled?: boolean; running?: boolean; runs?: number; nextRunAt?: string | null } };
+type PaperPosition = { id: string; symbol: string; side: 'BUY' | 'SELL'; entryPrice: number; currentPrice?: number; status: 'OPEN' | 'CLOSED'; pnl?: number; unrealizedPnl?: number; closeReason?: string };
+type PaperSummary = { startingBalance: number; balance: number; equity: number; realizedPnl: number; unrealizedPnl: number; totalPnl: number; totalPnlPercent: number; wins: number; losses: number; winRate: number; openCount: number; closedCount: number; bestClosed: number; worstClosed: number; openPositions: PaperPosition[]; closedPositions: PaperPosition[]; equityCurve: Array<{ equity: number }>; updatedAt: string };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...init });
@@ -16,99 +11,171 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
-export function App() {
-  const [symbol, setSymbol] = useState(defaultSymbol);
-  const [interval, setIntervalValue] = useState(defaultInterval);
-  const [signal, setSignal] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
-  const [backtest, setBacktest] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
-  const [paper, setPaper] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
-  const [scanner, setScanner] = useState<ApiState<unknown>>({ loading: false, data: null, error: null });
-  const [loop, setLoop] = useState<ApiState<LabLoopResponse>>({ loading: false, data: null, error: null });
-  const [summary, setSummary] = useState<ApiState<PaperSummary>>({ loading: false, data: null, error: null });
+function numberFromStorage(key: string, fallback: number) {
+  const value = Number(localStorage.getItem(key) ?? fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
-  const loopActive = loop.data?.data.enabled === true;
-  const loopBusy = loop.data?.data.running === true;
-  const loopRuns = loop.data?.data.runs ?? 0;
+export function App() {
+  const [capital, setCapital] = useState(numberFromStorage('auto-capital-usd', 20));
+  const [budget, setBudget] = useState(numberFromStorage('auto-budget-usd', 5));
+  const [position, setPosition] = useState(numberFromStorage('auto-position-usd', 5));
+  const [interval, setIntervalValue] = useState(localStorage.getItem('auto-interval') ?? '1m');
+  const [loop, setLoop] = useState<LoopResponse | null>(null);
+  const [summary, setSummary] = useState<PaperSummary | null>(null);
+  const [message, setMessage] = useState('جاهز للتشغيل');
+  const [busy, setBusy] = useState(false);
+
+  const active = loop?.data.enabled === true;
 
   useEffect(() => {
-    void refreshSummary(false);
-    void refreshLoop(false);
-    const summaryTimer = window.setInterval(() => void refreshSummary(false), 2_000);
-    const loopTimer = window.setInterval(() => void refreshLoop(false), 10_000);
-    return () => { window.clearInterval(summaryTimer); window.clearInterval(loopTimer); };
+    void refreshAll();
+    const id = window.setInterval(() => void refreshAll(), 10_000);
+    return () => window.clearInterval(id);
   }, []);
 
-  function syncLoopCards(response: LabLoopResponse) {
-    const result = response.data.lastResult;
-    if (!result) return;
-    if (result.symbol) setSymbol(result.symbol);
-    if (result.signal) setSignal({ loading: false, data: { ok: true, data: result.signal }, error: null });
-    if (result.backtest) setBacktest({ loading: false, data: { ok: true, data: result.backtest }, error: null });
-    if (result.recorded || result.updated || response.data.account || response.data.stats) setPaper({ loading: false, data: { ok: true, recorded: result.recorded, updated: result.updated, account: response.data.account, stats: response.data.stats }, error: null });
-    void refreshSummary(false);
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => void guardBudget(), 15_000);
+    return () => window.clearInterval(id);
+  }, [active, budget]);
+
+  async function refreshLoop() {
+    const data = await api<LoopResponse>('/api/lab-loop/status');
+    setLoop(data);
+    return data;
   }
 
-  async function refreshSummary(showLoading = true) {
-    const load = async () => (await api<{ ok: boolean; data: PaperSummary }>('/api/lab/paper/summary')).data;
-    if (showLoading) { await run(setSummary, load); return; }
-    try { setSummary({ loading: false, data: await load(), error: null }); } catch { }
+  async function refreshSummary() {
+    const data = await api<{ ok: boolean; data: PaperSummary }>('/api/lab/paper/summary');
+    setSummary(data.data);
+    return data.data;
   }
 
-  async function runSignal() { await run(setSignal, () => api(`/api/bot/signal?symbol=${symbol}&interval=${interval}&limit=150`)); }
-  async function runBacktest() { await run(setBacktest, () => api(`/api/lab/backtest?symbol=${symbol}&interval=${interval}&limit=500&startingBalance=1000&riskPercent=1`)); }
-  async function runPaperTick() { await run(setPaper, () => api('/api/lab/paper/tick', { method: 'POST', body: JSON.stringify({ symbol, interval, limit: 150, size: 0.001 }) })); await refreshSummary(false); }
-  async function resetPaper() { await run(setPaper, () => api('/api/lab/paper/reset', { method: 'POST', body: JSON.stringify({ balance: 1000 }) })); await refreshSummary(false); }
-  async function closeWinners() { await run(setPaper, () => api('/api/lab/paper/close-winners', { method: 'POST' })); await refreshSummary(false); }
-  async function closeAll() { await run(setPaper, () => api('/api/lab/paper/close-all', { method: 'POST' })); await refreshSummary(false); }
-
-  async function findBestMarket() {
-    setScanner({ loading: true, data: null, error: null }); setSignal({ loading: true, data: null, error: null }); setBacktest({ loading: true, data: null, error: null }); setPaper({ loading: true, data: null, error: null });
+  async function refreshAll() {
     try {
-      const scan = await api<ScanResponse>(`/api/scanner/best?interval=${interval}&top=12&limit=120&minQuoteVolume=20000000`);
-      const bestSymbol = scan.data.best?.symbol ?? symbol;
-      setSymbol(bestSymbol); setScanner({ loading: false, data: scan, error: null });
-      const [signalData, backtestData, paperData] = await Promise.all([
-        api(`/api/bot/signal?symbol=${bestSymbol}&interval=${interval}&limit=150`),
-        api(`/api/lab/backtest?symbol=${bestSymbol}&interval=${interval}&limit=500&startingBalance=1000&riskPercent=1`),
-        api('/api/lab/paper/tick', { method: 'POST', body: JSON.stringify({ symbol: bestSymbol, interval, limit: 150, size: 0.001 }) })
-      ]);
-      setSignal({ loading: false, data: signalData, error: null }); setBacktest({ loading: false, data: backtestData, error: null }); setPaper({ loading: false, data: paperData, error: null }); await refreshSummary(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      setScanner((current) => ({ ...current, loading: false, error: message })); setSignal((current) => ({ ...current, loading: false, error: current.data ? null : message })); setBacktest((current) => ({ ...current, loading: false, error: current.data ? null : message })); setPaper((current) => ({ ...current, loading: false, error: current.data ? null : message }));
+      await Promise.all([refreshLoop(), refreshSummary()]);
+    } catch {
+      setMessage('تعذر تحديث البيانات مؤقتًا');
     }
   }
 
-  async function startLoop() { await run(setLoop, async () => { const response = await api<LabLoopResponse>('/api/lab-loop/start', { method: 'POST', body: JSON.stringify({ interval, intervalSeconds: 60, top: 12, minQuoteVolume: 20000000, minConfidence: 85, minBacktestProfitPercent: 2, minBacktestTrades: 8, maxAbsMove24h: 18, size: 0 }) }); syncLoopCards(response); return response; }); }
-  async function stopLoop() { await run(setLoop, () => api('/api/lab-loop/stop', { method: 'POST' })); }
-  async function runLoopOnce() { await run(setLoop, async () => { const response = await api<LabLoopResponse>('/api/lab-loop/run-once', { method: 'POST' }); syncLoopCards(response); return response; }); }
-  async function refreshLoop(showLoading = true) {
-    if (showLoading) { await run(setLoop, async () => { const response = await api<LabLoopResponse>('/api/lab-loop/status'); syncLoopCards(response); return response; }); return; }
-    try { const response = await api<LabLoopResponse>('/api/lab-loop/status'); setLoop({ loading: false, data: response, error: null }); syncLoopCards(response); } catch { }
+  function saveSettings() {
+    localStorage.setItem('auto-capital-usd', String(capital));
+    localStorage.setItem('auto-budget-usd', String(budget));
+    localStorage.setItem('auto-position-usd', String(position));
+    localStorage.setItem('auto-interval', interval);
   }
 
-  return <main className="page">
-    <section className="hero"><div><p className="eyebrow">Smart Market Lab</p><h1>Simulation dashboard</h1><p className="lead">Market scanner, strategy checks, backtests, paper-mode performance boxes, and account analytics.</p></div><div className="status">Safe Mode</div></section>
-    <SummaryPanel state={summary} />
-    <section className={`loop-state-card ${loopActive ? 'is-active' : 'is-inactive'}`}><div><span className="state-dot" /><strong>{loopActive ? 'Monitoring ON' : 'Monitoring OFF'}</strong><small>{loopBusy ? 'running now' : 'standing by'}</small></div><div><span>Runs</span><strong>{loopRuns}</strong></div><div><span>Next</span><strong>{formatTime(loop.data?.data.nextRunAt)}</strong></div></section>
-    <section className="controls card"><label>Symbol<input value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} /></label><label>Interval<select value={interval} onChange={(event) => setIntervalValue(event.target.value)}>{['1m', '3m', '5m', '15m', '30m', '1h', '4h'].map((item) => <option key={item}>{item}</option>)}</select></label><button onClick={findBestMarket}>Find Best + Auto Test</button><button onClick={runSignal}>Run Signal</button><button onClick={runBacktest}>Run Backtest</button><button onClick={runPaperTick}>Paper Tick</button><button onClick={closeWinners}>Close Winners</button><button className="ghost" onClick={resetPaper}>Reset Paper</button></section>
-    <section className="controls card loop-controls"><button onClick={startLoop} className={loopActive ? 'active-on' : ''}>Start Lab Loop</button><button onClick={stopLoop} className={loopActive ? 'danger' : 'active-off'}>Stop Lab Loop</button><button onClick={runLoopOnce}>Run Loop Once</button><button onClick={() => void refreshLoop(true)} className="ghost">Refresh Loop</button><button onClick={() => void refreshSummary(true)} className="ghost">Refresh P/L</button><button onClick={closeAll} className="danger">Close All</button></section>
-    <section className="dashboard-grid"><PerformanceCard summary={summary.data} /><PositionsCard title="Open Positions" positions={summary.data?.openPositions ?? []} empty="No open paper positions." /><PositionsCard title="Closed Positions" positions={summary.data?.closedPositions ?? []} empty="No closed paper positions yet." /></section>
-    <section className="grid five diagnostics"><ResultCard title="Lab Loop Raw" state={loop} /><ResultCard title="Best Market Raw" state={scanner} /><ResultCard title="Signal Raw" state={signal} /><ResultCard title="Backtest Raw" state={backtest} /><ResultCard title="Paper Raw" state={paper} /></section>
+  async function startAuto() {
+    setBusy(true);
+    setMessage('جاري التشغيل...');
+    try {
+      saveSettings();
+      await api('/api/lab/paper/reset', { method: 'POST', body: JSON.stringify({ balance: capital }) });
+      const response = await api<LoopResponse>('/api/lab-loop/start', {
+        method: 'POST',
+        body: JSON.stringify({
+          interval,
+          intervalSeconds: 30,
+          top: 12,
+          minQuoteVolume: 8000000,
+          minConfidence: 60,
+          minBacktestProfitPercent: 0,
+          minBacktestTrades: 1,
+          minWinRate: 0,
+          maxDrawdownPercent: 30,
+          maxAbsMove24h: 70,
+          maxOpenPositions: 4,
+          maxPositionNotional: position,
+          riskPercent: 1,
+          commissionRate: 0.0004,
+          slippageRate: 0.0002,
+          size: 0
+        })
+      });
+      setLoop(response);
+      setMessage('النظام الآلي شغال');
+      await refreshSummary();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'فشل التشغيل');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopAuto() {
+    setBusy(true);
+    try {
+      const response = await api<LoopResponse>('/api/lab-loop/stop', { method: 'POST' });
+      setLoop(response);
+      setMessage('تم إيقاف النظام');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetAll() {
+    setBusy(true);
+    setMessage('جاري التصفير...');
+    try {
+      saveSettings();
+      await api('/api/lab-loop/stop', { method: 'POST' }).catch(() => undefined);
+      await api('/api/lab/paper/reset', { method: 'POST', body: JSON.stringify({ balance: capital }) });
+      await refreshAll();
+      setMessage(`تم تصفير التجربة إلى ${capital}$`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'فشل التصفير');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function guardBudget() {
+    try {
+      const data = await refreshSummary();
+      if (data.equity <= data.startingBalance - budget) {
+        await api('/api/lab/paper/close-all', { method: 'POST' }).catch(() => undefined);
+        await stopAuto();
+        setMessage(`توقف لحماية الرصيد: حد الإيقاف ${budget}$`);
+      }
+    } catch {
+      // ignore temporary refresh errors
+    }
+  }
+
+  return <main className="page" dir="rtl">
+    <section className="hero"><div><p className="eyebrow">مختبر السوق الذكي</p><h1>لوحة المحاكاة والتحليل</h1><p className="lead">واجهة خفيفة للتجربة الورقية: رأس مال محدد، حد إيقاف، وأقصى صفقة.</p></div><div className="status">Paper Mode</div></section>
+
+    <section className="summary-grid">
+      <Stat label="قيمة الحساب" value={money(summary?.equity)} hint="الرصيد + المفتوح" tone="neutral" />
+      <Stat label="إجمالي الربح/الخسارة" value={money(summary?.totalPnl)} hint={pct(summary?.totalPnlPercent)} tone={tone(summary?.totalPnl)} />
+      <Stat label="الربح المحقق" value={money(summary?.realizedPnl)} hint="صفقات مغلقة" tone={tone(summary?.realizedPnl)} />
+      <Stat label="الربح المفتوح" value={money(summary?.unrealizedPnl)} hint="صفقات حالية" tone={tone(summary?.unrealizedPnl)} />
+      <Stat label="نسبة الفوز" value={pct(summary?.winRate)} hint={`${summary?.wins ?? 0}W / ${summary?.losses ?? 0}L`} tone="neutral" />
+      <Stat label="الصفقات" value={`open ${summary?.openCount ?? 0}`} hint={`closed ${summary?.closedCount ?? 0}`} tone="neutral" />
+    </section>
+
+    <section className={`auto-panel ${active ? 'is-active' : ''}`}>
+      <div><strong>{active ? 'النظام الآلي شغال' : 'النظام الآلي متوقف'}</strong><span>{message}</span></div>
+      <label>رأس مال البوت $<input disabled={active || busy} type="number" min="5" value={capital} onChange={(e) => setCapital(Number(e.target.value))} /></label>
+      <label>حد الإيقاف $<input disabled={active || busy} type="number" min="1" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label>
+      <label>أقصى صفقة $<input disabled={active || busy} type="number" min="1" value={position} onChange={(e) => setPosition(Number(e.target.value))} /></label>
+      <label>الفريم<select disabled={active || busy} value={interval} onChange={(e) => setIntervalValue(e.target.value)}><option>1m</option><option>3m</option><option>5m</option><option>15m</option></select></label>
+      {active ? <button className="danger" disabled={busy} onClick={stopAuto}>إيقاف النظام</button> : <button className="active-on" disabled={busy} onClick={startAuto}>تشغيل النظام الآلي</button>}
+      <button className="ghost" disabled={busy || active} onClick={resetAll}>تصفير كل شيء</button>
+    </section>
+
+    <section className={`loop-state-card ${active ? 'is-active' : 'is-inactive'}`}><div><span className="state-dot" /><strong>{active ? 'Monitoring ON' : 'Monitoring OFF'}</strong><small>{loop?.data.running ? 'running now' : 'standing by'}</small></div><div><span>Runs</span><strong>{loop?.data.runs ?? 0}</strong></div><div><span>Next</span><strong>{loop?.data.nextRunAt ? new Date(loop.data.nextRunAt).toLocaleTimeString() : '-'}</strong></div></section>
+
+    <section className="dashboard-grid"><Chart points={summary?.equityCurve ?? []} /><Positions title="الصفقات المفتوحة" positions={summary?.openPositions ?? []} empty="لا توجد صفقات مفتوحة." /><Positions title="الصفقات المغلقة" positions={summary?.closedPositions ?? []} empty="لا توجد صفقات مغلقة." /></section>
   </main>;
 }
 
-function SummaryPanel(props: { state: ApiState<PaperSummary> }) { const s = props.state.data; return <section className="summary-grid"><StatCard label="Equity" value={fmtMoney(s?.equity)} hint="Balance + open P/L" tone="neutral" /><StatCard label="Total P/L" value={fmtMoney(s?.totalPnl)} hint={fmtPct(s?.totalPnlPercent)} tone={tone(s?.totalPnl)} /><StatCard label="Realized P/L" value={fmtMoney(s?.realizedPnl)} hint="Closed results" tone={tone(s?.realizedPnl)} /><StatCard label="Open P/L" value={fmtMoney(s?.unrealizedPnl)} hint="Running positions" tone={tone(s?.unrealizedPnl)} /><StatCard label="Win Rate" value={fmtPct(s?.winRate)} hint={`${s?.wins ?? 0}W / ${s?.losses ?? 0}L`} tone="neutral" /><StatCard label="Positions" value={`${s?.openCount ?? 0} open`} hint={`${s?.closedCount ?? 0} closed`} tone="neutral" /></section>; }
-function StatCard(props: { label: string; value: string; hint: string; tone: 'positive' | 'negative' | 'neutral' }) { return <article className={`stat-card ${props.tone}`}><p>{props.label}</p><strong>{props.value}</strong><span>{props.hint}</span></article>; }
-function PerformanceCard(props: { summary?: PaperSummary | null }) { return <article className="card panel-card wide-card"><div className="panel-head"><h2>Performance Chart</h2><span>{props.summary?.updatedAt ? new Date(props.summary.updatedAt).toLocaleTimeString() : 'Waiting'}</span></div><EquityChart points={props.summary?.equityCurve ?? []} /><div className="chart-footer"><span>Start: {fmtMoney(props.summary?.startingBalance)}</span><span>Balance: {fmtMoney(props.summary?.balance)}</span><span>Best: {fmtMoney(props.summary?.bestClosed)}</span><span>Worst: {fmtMoney(props.summary?.worstClosed)}</span></div></article>; }
-function EquityChart(props: { points: Array<{ equity: number }> }) { const points = props.points.length >= 2 ? props.points : [{ equity: 1000 }, { equity: 1000 }]; const values = points.map((point) => point.equity); const min = Math.min(...values); const max = Math.max(...values); const range = Math.max(max - min, 1); const width = 620; const height = 180; const path = points.map((point, index) => { const x = points.length === 1 ? 0 : (index / (points.length - 1)) * width; const y = height - ((point.equity - min) / range) * height; return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`; }).join(' '); return <svg className="equity-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none"><path d={path} /></svg>; }
-function PositionsCard(props: { title: string; positions: PaperPosition[]; empty: string }) { return <article className="card panel-card"><div className="panel-head"><h2>{props.title}</h2><span>{props.positions.length}</span></div>{props.positions.length === 0 ? <p className="muted">{props.empty}</p> : <div className="positions-list">{props.positions.map((position) => <PositionRow key={position.id} position={position} />)}</div>}</article>; }
-function PositionRow(props: { position: PaperPosition }) { const p = props.position; const pnl = p.status === 'OPEN' ? p.unrealizedPnl : p.pnl; return <div className="position-row"><div><strong>{p.symbol}</strong><span>{p.side} · {p.status}</span></div><div><span>Entry</span><strong>{num(p.entryPrice)}</strong></div><div><span>Now/Exit</span><strong>{num(p.currentPrice ?? p.entryPrice)}</strong></div><div><span>P/L</span><strong className={pnl && pnl < 0 ? 'loss-text' : 'win-text'}>{fmtMoney(pnl)}</strong></div><div><span>Open For</span><strong>{fmtDuration(p.timeOpenSeconds)}</strong></div><div><span>ETA Close</span><strong>{fmtDuration(p.estimatedCloseSeconds)}</strong></div><div><span>Nearest</span><strong>{p.nearestExit ? `${p.nearestExit.type} ${num(p.nearestExit.price)}` : '-'}</strong></div></div>; }
-function ResultCard(props: { title: string; state: ApiState<unknown> }) { return <article className="card result"><h2>{props.title}</h2>{props.state.loading && <p>Loading...</p>}{props.state.error && <p className="error">{props.state.error}</p>}{props.state.data && <pre>{JSON.stringify(props.state.data, null, 2)}</pre>}{!props.state.loading && !props.state.error && !props.state.data && <p className="muted">No data yet.</p>}</article>; }
-async function run<T>(setState: (state: ApiState<T>) => void, fn: () => Promise<T>) { setState({ loading: true, data: null, error: null }); try { setState({ loading: false, data: await fn(), error: null }); } catch (error) { setState({ loading: false, data: null, error: error instanceof Error ? error.message : 'Unknown error' }); } }
-function fmtMoney(value?: number) { if (typeof value !== 'number' || Number.isNaN(value)) return '$0.00'; const sign = value < 0 ? '-' : ''; return `${sign}$${Math.abs(value).toFixed(4)}`; }
-function fmtPct(value?: number) { if (typeof value !== 'number' || Number.isNaN(value)) return '0.00%'; return `${value.toFixed(2)}%`; }
-function num(value?: number) { if (typeof value !== 'number' || Number.isNaN(value)) return '-'; return value < 1 ? value.toFixed(6) : value.toFixed(3); }
-function fmtDuration(seconds?: number | null) { if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'estimating'; const safe = Math.max(0, Math.floor(seconds)); const hours = Math.floor(safe / 3600); const minutes = Math.floor((safe % 3600) / 60); const secs = safe % 60; if (hours > 0) return `${hours}h ${minutes}m ${secs}s`; return `${minutes}m ${secs}s`; }
-function formatTime(value?: string | null) { if (!value) return '-'; return new Date(value).toLocaleTimeString(); }
+function Stat(props: { label: string; value: string; hint: string; tone: 'positive' | 'negative' | 'neutral' }) { return <article className={`stat-card ${props.tone}`}><p>{props.label}</p><strong>{props.value}</strong><span>{props.hint}</span></article>; }
+function Chart(props: { points: Array<{ equity: number }> }) { const points = props.points.length > 1 ? props.points : [{ equity: 20 }, { equity: 20 }]; const values = points.map((p) => p.equity); const min = Math.min(...values); const max = Math.max(...values); const range = Math.max(max - min, 1); const path = points.map((p, i) => { const x = (i / Math.max(points.length - 1, 1)) * 620; const y = 180 - ((p.equity - min) / range) * 180; return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`; }).join(' '); return <article className="card panel-card wide-card"><div className="panel-head"><h2>شارت الأداء</h2></div><svg className="equity-chart" viewBox="0 0 620 180" preserveAspectRatio="none"><path d={path} /></svg></article>; }
+function Positions(props: { title: string; positions: PaperPosition[]; empty: string }) { return <article className="card panel-card"><div className="panel-head"><h2>{props.title}</h2><span>{props.positions.length}</span></div>{props.positions.length === 0 ? <p className="muted">{props.empty}</p> : <div className="positions-list">{props.positions.slice(0, 10).map((p) => <div className="position-row" key={p.id}><div><strong>{p.symbol}</strong><span>{p.side} · {p.status}</span></div><div><span>الدخول</span><strong>{num(p.entryPrice)}</strong></div><div><span>الحالي</span><strong>{num(p.currentPrice ?? p.entryPrice)}</strong></div><div><span>صافي</span><strong className={(p.status === 'OPEN' ? p.unrealizedPnl : p.pnl) && (p.status === 'OPEN' ? p.unrealizedPnl : p.pnl)! < 0 ? 'loss-text' : 'win-text'}>{money(p.status === 'OPEN' ? p.unrealizedPnl : p.pnl)}</strong></div></div>)}</div>}</article>; }
+function money(value?: number) { if (typeof value !== 'number' || Number.isNaN(value)) return '$0.00'; const sign = value < 0 ? '-' : ''; return `${sign}$${Math.abs(value).toFixed(4)}`; }
+function pct(value?: number) { return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '0.00%'; }
+function num(value?: number) { return typeof value === 'number' ? (value < 1 ? value.toFixed(6) : value.toFixed(3)) : '-'; }
 function tone(value?: number): 'positive' | 'negative' | 'neutral' { if (!value) return 'neutral'; return value > 0 ? 'positive' : 'negative'; }
